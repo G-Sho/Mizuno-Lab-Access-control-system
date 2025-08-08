@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run build:*)",
+      "Bash(copy .env.example .env)",
+      "Bash(cp:*)",
+      "Bash(ipconfig)",
+      "Bash(npm install:*)",
+      "Bash(npm run server:*)",
+      "Bash(if not exist .env copy .env.example .env)",
+      "Bash(test:*)",
+      "Bash(npm run demo:*)",
+      "Bash(taskkill:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": []
+  }
+}
