@@ -14,7 +14,18 @@
       "Bash(npm run demo:*)",
       "Bash(taskkill:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(firebase init:*)",
+      "Bash(mkdir:*)",
+      "WebFetch(domain:console.firebase.google.com)",
+      "Bash(firebase login:*)",
+      "Bash(firebase deploy:*)",
+      "Bash(npm run lint)",
+      "Bash(firebase functions:config:set:*)",
+      "Bash(npm run deploy:*)",
+      "Bash(npm run dev:*)",
+      "Bash(rmdir:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

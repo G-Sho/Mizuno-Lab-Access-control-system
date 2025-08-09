@@ -1,10 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import RealtimeApp from './RealtimeApp.tsx'
+import RefactoredFirebaseApp from './RefactoredFirebaseApp.tsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <RealtimeApp />
+    <RefactoredFirebaseApp />
   </React.StrictMode>,
 )
