@@ -21,7 +21,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         </div>
         <h1 className="text-2xl font-bold text-gray-800 mb-2">入退室管理</h1>
         <p className="text-gray-600">工学院大学 水野研究室</p>
-        <p className="text-sm text-blue-600 font-medium">@g.kogakuin.jp アカウント限定</p>
+        <p className="text-sm text-blue-600 font-medium">@g.kogakuin.jp / @cc.kogakuin.ac.jp 限定</p>
       </div>
       
       {authError && <ErrorAlert message={authError} className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded" />}

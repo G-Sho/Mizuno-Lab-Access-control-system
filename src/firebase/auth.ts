@@ -18,7 +18,7 @@ googleProvider.addScope('profile');
 
 // 工学院大学のドメインチェック
 const isKogakuinEmail = (email: string): boolean => {
-  return email.endsWith('@g.kogakuin.jp');
+  return email.endsWith('@g.kogakuin.jp') || email.endsWith('@cc.kogakuin.ac.jp');
 };
 
 // Google認証でサインイン（ポップアップ方式）
@@ -41,7 +41,7 @@ export const signInWithGoogle = async (): Promise<FirebaseAuthUser | null> => {
     if (!user.email || !isKogakuinEmail(user.email)) {
       // 認証されたユーザーをサインアウト
       await signOut();
-      throw new Error('工学院大学のアカウント（@g.kogakuin.jp）でのみログインできます。');
+      throw new Error('工学院大学のアカウント（@g.kogakuin.jp または @cc.kogakuin.ac.jp）でのみログインできます。');
     }
     
     return {
