@@ -65,9 +65,24 @@ exports.onLogCreate = functions.firestore
             return;
         }
         const { userName, action, room, timestamp, } = logData;
-        // タイムスタンプをフォーマット
-        const formattedTime = ((_b = (_a = timestamp === null || timestamp === void 0 ? void 0 : timestamp.toDate) === null || _a === void 0 ? void 0 : _a.call(timestamp)) === null || _b === void 0 ? void 0 : _b.toLocaleString("ja-JP")) ||
-            new Date().toLocaleString("ja-JP");
+        // タイムスタンプをフォーマット（日本時間）
+        const formattedTime = ((_b = (_a = timestamp === null || timestamp === void 0 ? void 0 : timestamp.toDate) === null || _a === void 0 ? void 0 : _a.call(timestamp)) === null || _b === void 0 ? void 0 : _b.toLocaleString("ja-JP", {
+            timeZone: "Asia/Tokyo",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        })) || new Date().toLocaleString("ja-JP", {
+            timeZone: "Asia/Tokyo",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        });
         let message;
         if (action === "鍵取得" || action === "鍵返却") {
             // 鍵の取得/返却の場合、現在の鍵保持者を取得
@@ -106,7 +121,15 @@ exports.onUserKeyStatusChange = functions.firestore
         if (beforeData.hasKey !== afterData.hasKey) {
             const userName = afterData.name;
             const action = afterData.hasKey ? "鍵取得" : "鍵返却";
-            const timestamp = new Date().toLocaleString("ja-JP");
+            const timestamp = new Date().toLocaleString("ja-JP", {
+                timeZone: "Asia/Tokyo",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit"
+            });
             let keyHolderName;
             if (afterData.hasKey) {
                 keyHolderName = userName;

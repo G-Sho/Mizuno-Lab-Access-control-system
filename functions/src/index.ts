@@ -87,9 +87,24 @@ export const onLogCreate = functions.firestore
         timestamp,
       } = logData;
 
-      // タイムスタンプをフォーマット
-      const formattedTime = timestamp?.toDate?.()?.toLocaleString("ja-JP") || 
-                           new Date().toLocaleString("ja-JP");
+      // タイムスタンプをフォーマット（日本時間）
+      const formattedTime = timestamp?.toDate?.()?.toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit", 
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      }) || new Date().toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit", 
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
 
       let message: string;
 
@@ -135,7 +150,15 @@ export const onUserKeyStatusChange = functions.firestore
       if (beforeData.hasKey !== afterData.hasKey) {
         const userName = afterData.name;
         const action = afterData.hasKey ? "鍵取得" : "鍵返却";
-        const timestamp = new Date().toLocaleString("ja-JP");
+        const timestamp = new Date().toLocaleString("ja-JP", {
+          timeZone: "Asia/Tokyo",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit", 
+          minute: "2-digit",
+          second: "2-digit"
+        });
         
         let keyHolderName: string | undefined;
         if (afterData.hasKey) {
