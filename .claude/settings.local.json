@@ -25,7 +25,13 @@
       "Bash(npm run deploy:*)",
       "Bash(npm run dev:*)",
       "Bash(rmdir:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(npm audit:*)",
+      "Bash(firebase --version)",
+      "Bash(npx vite:*)",
+      "Bash(firebase auth:list:*)",
+      "Bash(firebase apps:list:*)",
+      "Bash(firebase apps:sdkconfig:*)"
     ],
     "deny": []
   }

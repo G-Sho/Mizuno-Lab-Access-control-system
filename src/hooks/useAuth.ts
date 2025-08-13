@@ -20,15 +20,16 @@ export const useAuth = () => {
       
       if (user) {
         try {
+          // 新規ユーザーのみ初期値で保存、既存ユーザーは基本情報のみ更新
           await saveUser({
             uid: user.uid,
             name: user.name,
             email: user.email,
             avatar: user.avatar,
             provider: user.provider,
-            room2218: false,
-            gradRoom: false,
-            hasKey: false
+            room2218: false,  // 新規ユーザーのみ使用される
+            gradRoom: false,  // 新規ユーザーのみ使用される  
+            hasKey: false     // 新規ユーザーのみ使用される
           });
         } catch (error) {
           console.error('Error saving user to Firestore:', error);

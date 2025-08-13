@@ -62,9 +62,11 @@ export const signInWithGoogle = async (): Promise<FirebaseAuthUser | null> => {
     } else if (error.code === 'auth/popup-closed-by-user') {
       throw new Error('認証がキャンセルされました。');
     } else if (error.code === 'auth/unauthorized-domain') {
+      console.error('Unauthorized domain error. Current domain:', window.location.origin);
       throw new Error('このドメインは認証が許可されていません。Firebase Console で設定を確認してください。');
     } else {
-      throw new Error(`Google認証エラー: ${error.message}`);
+      console.error('Full error object:', error);
+      throw new Error(`Google認証エラー: ${error.message} (Code: ${error.code})`);
     }
   }
 };

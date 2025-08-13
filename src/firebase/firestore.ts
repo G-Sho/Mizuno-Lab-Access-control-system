@@ -32,18 +32,16 @@ export const saveUser = async (user: Omit<FirestoreUser, 'createdAt' | 'lastActi
     const userRef = doc(usersCollection, user.uid);
     const existingUser = await getDoc(userRef);
     
-    const now = serverTimestamp() as Timestamp;
+    const now = serverTimestamp();
     
     if (existingUser.exists()) {
-      // 既存ユーザーの更新
+      // 既存ユーザーの更新（room2218, gradRoom, hasKeyは既存の値を保持）
+      const existingData = existingUser.data() as FirestoreUser;
       await updateDoc(userRef, {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
         provider: user.provider,
-        room2218: user.room2218,
-        gradRoom: user.gradRoom,
-        hasKey: user.hasKey,
         lastActivity: now
       });
     } else {
@@ -112,7 +110,10 @@ export const updateUserKeyStatus = async (uid: string, hasKey: boolean): Promise
       const allUsers = await getAllUsers();
       const promises = allUsers
         .filter(u => u.uid !== uid && u.hasKey)
-        .map(u => updateDoc(doc(usersCollection, u.uid), { hasKey: false }));
+        .map(u => updateDoc(doc(usersCollection, u.uid), { 
+          hasKey: false,
+          lastActivity: serverTimestamp()
+        }));
       await Promise.all(promises);
     }
     
