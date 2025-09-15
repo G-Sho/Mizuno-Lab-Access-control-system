@@ -116,16 +116,3 @@ export const onAuthStateChange = (callback: (user: FirebaseAuthUser | null) => v
   });
 };
 
-// 現在のユーザー取得
-export const getCurrentUser = (): FirebaseAuthUser | null => {
-  const user = auth.currentUser;
-  if (!user) return null;
-  
-  return {
-    uid: user.uid,
-    name: user.displayName || user.email || 'Unknown User',
-    email: user.email || '',
-    avatar: user.photoURL || undefined,
-    provider: user.providerData[0]?.providerId || 'firebase'
-  };
-};

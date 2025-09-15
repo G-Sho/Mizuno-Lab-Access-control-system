@@ -1,17 +1,16 @@
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs, 
-  updateDoc, 
-  addDoc, 
-  query, 
-  orderBy, 
-  limit, 
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  updateDoc,
+  addDoc,
+  query,
+  orderBy,
+  limit,
   onSnapshot,
   serverTimestamp,
-  Timestamp,
   deleteDoc
 } from 'firebase/firestore';
 import { db } from './config';
@@ -36,7 +35,6 @@ export const saveUser = async (user: Omit<FirestoreUser, 'createdAt' | 'lastActi
     
     if (existingUser.exists()) {
       // 既存ユーザーの更新（room2218, gradRoom, hasKeyは既存の値を保持）
-      const existingData = existingUser.data() as FirestoreUser;
       await updateDoc(userRef, {
         name: user.name,
         email: user.email,
@@ -58,20 +56,6 @@ export const saveUser = async (user: Omit<FirestoreUser, 'createdAt' | 'lastActi
   }
 };
 
-export const getUser = async (uid: string): Promise<FirestoreUser | null> => {
-  try {
-    const userRef = doc(usersCollection, uid);
-    const userDoc = await getDoc(userRef);
-    
-    if (userDoc.exists()) {
-      return { uid, ...userDoc.data() } as FirestoreUser;
-    }
-    return null;
-  } catch (error) {
-    console.error('Error getting user:', error);
-    throw new Error('ユーザー情報の取得に失敗しました');
-  }
-};
 
 export const getAllUsers = async (): Promise<FirestoreUser[]> => {
   try {
@@ -142,20 +126,6 @@ export const addLog = async (log: AttendanceLog): Promise<void> => {
   }
 };
 
-export const getRecentLogs = async (limitCount = 50): Promise<FirestoreLogEntry[]> => {
-  try {
-    const q = query(logsCollection, orderBy('timestamp', 'desc'), limit(limitCount));
-    const querySnapshot = await getDocs(q);
-    
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as FirestoreLogEntry));
-  } catch (error) {
-    console.error('Error getting logs:', error);
-    throw new Error('ログの取得に失敗しました');
-  }
-};
 
 // リアルタイム監視
 export const subscribeToUsers = (callback: (users: FirestoreUser[]) => void) => {
