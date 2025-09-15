@@ -9,31 +9,70 @@ const db = admin.firestore();
 // Slack Webhook URLは環境変数から取得
 const SLACK_WEBHOOK_URL = functions.config().slack?.webhook_url;
 
-// Slack メッセージ送信関数
-async function sendSlackMessage(message: string): Promise<void> {
+// タイムスタンプを日本時間でフォーマットする共通関数
+function formatTimestamp(timestamp?: FirebaseFirestore.Timestamp | Date): string {
+  let date: Date;
+
+  if (timestamp && typeof timestamp.toDate === "function") {
+    // Firestore Timestampの場合
+    date = timestamp.toDate();
+  } else if (timestamp instanceof Date) {
+    // Dateオブジェクトの場合
+    date = timestamp;
+  } else {
+    // timestampがない場合は現在時刻を使用
+    date = new Date();
+  }
+
+  return date.toLocaleString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+// Slack メッセージ送信関数（リトライ機能付き）
+async function sendSlackMessage(message: string, retryCount = 3): Promise<void> {
   if (!SLACK_WEBHOOK_URL) {
     console.warn("Slack webhook URL not configured");
     return;
   }
 
-  try {
-    const response = await fetch(SLACK_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: message,
-        username: "研究室入退室管理システム",
-        icon_emoji: ":office:",
-      }),
-    });
+  for (let attempt = 1; attempt <= retryCount; attempt++) {
+    try {
+      const response = await fetch(SLACK_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: message,
+          username: "研究室入退室管理システム",
+          icon_emoji: ":office:",
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`Slack API error: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Slack API error: ${response.status} - ${response.statusText}`);
+      }
+
+      // 成功した場合はリターン
+      return;
+    } catch (error) {
+      console.error(`Failed to send Slack message (attempt ${attempt}/${retryCount}):`, error);
+
+      // 最後の試行でない場合は少し待機してからリトライ
+      if (attempt < retryCount) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      } else {
+        // 全ての試行が失敗した場合
+        console.error("All retry attempts failed for Slack message:", message);
+      }
     }
-  } catch (error) {
-    console.error("Failed to send Slack message:", error);
   }
 }
 
@@ -88,23 +127,7 @@ export const onLogCreate = functions.firestore
       } = logData;
 
       // タイムスタンプをフォーマット（日本時間）
-      const formattedTime = timestamp?.toDate?.()?.toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo",
-        year: "numeric",
-        month: "2-digit", 
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
-      }) || new Date().toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit", 
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
-      });
+      const formattedTime = formatTimestamp(timestamp);
 
       let message: string;
 
@@ -138,37 +161,46 @@ export const onLogCreate = functions.firestore
     }
   });
 
-// 鍵の状態変更を監視（追加の通知用）
+// 鍵の状態変更を監視（ログ作成を伴わない直接的な状態変更のみ通知）
 export const onUserKeyStatusChange = functions.firestore
   .document("users/{userId}")
-  .onUpdate(async (change, _context) => {
+  .onUpdate(async (change, context) => {
     try {
       const beforeData = change.before.data();
       const afterData = change.after.data();
-      
+
       // hasKeyフィールドの変更をチェック
       if (beforeData.hasKey !== afterData.hasKey) {
+        const userId = context.params.userId;
         const userName = afterData.name;
         const action = afterData.hasKey ? "鍵取得" : "鍵返却";
-        const timestamp = new Date().toLocaleString("ja-JP", {
-          timeZone: "Asia/Tokyo",
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit", 
-          minute: "2-digit",
-          second: "2-digit"
-        });
-        
-        let keyHolderName: string | undefined;
-        if (afterData.hasKey) {
-          keyHolderName = userName;
+
+        // 最近（5秒以内）に同じユーザーの同じアクションのログが作成されているかチェック
+        // これにより onLogCreate との重複通知を防ぐ
+        const fiveSecondsAgo = new Date(Date.now() - 5000);
+        const recentLogsSnapshot = await db.collection("logs")
+          .where("userId", "==", userId)
+          .where("action", "==", action)
+          .where("timestamp", ">", fiveSecondsAgo)
+          .limit(1)
+          .get();
+
+        // 最近のログがない場合のみ通知（直接的な状態変更）
+        if (recentLogsSnapshot.empty) {
+          const formattedTime = formatTimestamp();
+
+          let keyHolderName: string | undefined;
+          if (afterData.hasKey) {
+            keyHolderName = userName;
+          }
+
+          const message = formatKeyMessage(userName, action, formattedTime, keyHolderName);
+          await sendSlackMessage(message);
+
+          console.log(`Direct key status notification sent for user ${userName}: ${action}`);
+        } else {
+          console.log(`Skipping duplicate key notification for user ${userName}: ${action} (recent log exists)`);
         }
-        
-        const message = formatKeyMessage(userName, action, timestamp, keyHolderName);
-        await sendSlackMessage(message);
-        
-        console.log(`Key status notification sent for user ${userName}: ${action}`);
       }
     } catch (error) {
       console.error("Error in onUserKeyStatusChange function:", error);

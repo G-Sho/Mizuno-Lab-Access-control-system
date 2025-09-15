@@ -31,7 +31,8 @@
       "Bash(npx vite:*)",
       "Bash(firebase auth:list:*)",
       "Bash(firebase apps:list:*)",
-      "Bash(firebase apps:sdkconfig:*)"
+      "Bash(firebase apps:sdkconfig:*)",
+      "Bash(dir .env)"
     ],
     "deny": []
   }
