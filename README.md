@@ -1,204 +1,261 @@
 # 研究室入退室管理システム
 
-研究室の入退室を管理するWebアプリケーションです。Firebaseを活用したリアルタイム同期とSlack通知機能を備えた本格的なシステムです。
+TypeScriptとFirebaseを使った研究室の入退室管理システムです。リアルタイム同期とSlack通知機能を備えています。
 
 ## 🚀 機能
 
-- **Firebase Authentication**: Google認証による安全なログイン
-- **リアルタイム同期**: Firestoreによるリアルタイムデータ同期
-- **入退室管理**: 2218室（鍵付き）と院生室の入退室記録
-- **鍵管理**: 研究室の鍵の所在管理（一人だけが保持可能）
-- **Slack通知**: Firebase Functionsを使った自動Slack通知（日本時間対応）
-- **履歴表示**: 最近の入退室履歴の表示
+### 認証・ユーザー管理
+- **Google OAuth認証**: Firebase Authenticationによる安全なログイン
+- **自動ユーザー登録**: 初回ログイン時に自動でFirestoreにユーザー情報を保存
+
+### 入退室管理
+- **A2218室（鍵付き）**: 入退室記録と鍵管理機能
+- **院生室**: 入退室記録
+- **リアルタイム同期**: Firestoreによる即座な状態更新
+- **履歴表示**: 最近の入退室ログの表示
+
+### 鍵管理システム
+- **排他制御**: 一人だけが鍵を保持可能
+- **状態追跡**: 鍵の所在をリアルタイムで管理
+- **自動通知**: 鍵の取得・返却時にSlack通知
+
+### Slack通知
+- **自動通知**: 入退室・鍵の取得/返却時に自動でSlack投稿
+- **日本時間表示**: JST（Asia/Tokyo）での正確な時刻表示
+- **重複防止**: Cloud Functionsによる賢い通知制御
 
 ## 🛠️ 技術スタック
 
 ### フロントエンド
 - **React 18** + **TypeScript**
-- **Vite** (ビルドツール)
+- **Vite** (開発・ビルドツール)
 - **Tailwind CSS** (スタイリング)
-- **Lucide React** (アイコン)
+- **Lucide React** (アイコンライブラリ)
 
-### バックエンド
-- **Firebase**
-  - **Authentication** (Google OAuth)
-  - **Firestore** (NoSQLデータベース)
-  - **Functions** (サーバーレス関数)
-  - **Hosting** (静的ホスティング)
+### バックエンド・インフラ
+- **Firebase Authentication** (Google OAuth)
+- **Cloud Firestore** (NoSQLデータベース)
+- **Cloud Functions** (Node.js 18, TypeScript)
+- **Firebase Hosting** (静的サイトホスティング)
 
-## セットアップ手順
+### 開発ツール
+- **TypeScript 5.0**
+- **ESLint** (コード品質)
+- **PostCSS** + **Autoprefixer**
 
-### 前提条件
+## 📋 必要な環境
+
 - Node.js 18以上
 - Firebase CLI
-- Firebase プロジェクト
+- Firebaseプロジェクト（Authentication, Firestore, Functions, Hosting有効）
+- Slack Workspace（通知機能を使う場合）
 
-### ローカル開発環境
+## 🚦 セットアップ
 
-1. **リポジトリをクローン**
-   ```bash
-   git clone <repository-url>
-   cd Mizuno-Lab-Access-control-system
-   ```
-
-2. **依存関係をインストール**
-   ```bash
-   npm install
-   cd functions && npm install && cd ..
-   ```
-
-3. **Firebase設定**
-   ```bash
-   # Firebase CLI にログイン
-   firebase login
-   
-   # Firebaseプロジェクトを初期化
-   firebase use --add
-   ```
-
-4. **環境変数を設定**
-   ```bash
-   cp .env.example .env
-   # .envファイルを編集してFirebaseの設定を追加
-   ```
-
-5. **Slack Webhook設定（オプション）**
-   ```bash
-   # Firebase Functions の環境変数にSlack Webhook URLを設定
-   firebase functions:config:set slack.webhook_url="YOUR_SLACK_WEBHOOK_URL"
-   ```
-
-6. **開発サーバーを起動**
-   ```bash
-   npm run dev
-   ```
-   
-7. **ブラウザでアクセス**
-   
-   http://localhost:5173 にアクセスしてアプリケーションを確認
-
-### Firebase デプロイ
-
-1. **フロントエンドのデプロイ**
-   ```bash
-   npm run build
-   firebase deploy --only hosting
-   ```
-
-2. **Functions のデプロイ**
-   ```bash
-   firebase deploy --only functions
-   ```
-
-3. **全体のデプロイ**
-   ```bash
-   firebase deploy
-   ```
-
-## 使い方
-
-### 初回利用時
-
-1. **Google認証でログイン**
-   - 「Googleでログイン」ボタンをクリック
-   - Googleアカウントでログイン
-   - 初回ログイン時は自動的にユーザー登録される
-
-### 日常的な利用
-
-1. **入室**
-   - 該当する部屋の「入室」ボタンをクリック
-   - 2218室の場合、鍵を持っている場合はチェックボックスにチェック
-   - Slackに自動通知される（日本時間で表示）
-
-2. **退室**
-   - 該当する部屋の「退室」ボタンをクリック
-   - 2218室で鍵を返却する場合はチェックボックスを外す
-   - Slackに自動通知される（日本時間で表示）
-
-3. **現在の状況確認**
-   - 右側のパネルで在室者と鍵の所在を確認
-   - 履歴パネルで最近の動きを確認
-
-4. **ログアウト**
-   - ヘッダー右上の「ログアウト」をクリック
-
-## 利用可能なスクリプト
-
+### 1. プロジェクトの準備
 ```bash
-# 開発サーバー起動
+# リポジトリをクローン
+git clone <repository-url>
+cd Mizuno-Lab-Access-control-system
+
+# 依存関係をインストール
+npm install
+cd functions && npm install && cd ..
+```
+
+### 2. Firebase設定
+```bash
+# Firebase CLIにログイン
+firebase login
+
+# プロジェクトを選択
+firebase use --add
+```
+
+### 3. 環境変数の設定
+```bash
+# 環境変数ファイルをコピー
+cp .env.example .env
+```
+
+`.env`ファイルを編集してFirebaseの設定値を入力：
+```env
+VITE_FIREBASE_API_KEY=your_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+```
+
+### 4. Slack Webhook設定（オプション）
+```bash
+# Firebase FunctionsにSlack Webhook URLを設定
+firebase functions:config:set slack.webhook_url="YOUR_SLACK_WEBHOOK_URL"
+```
+
+### 5. 開発サーバーの起動
+```bash
 npm run dev
+```
 
-# 本番ビルド
+ブラウザで http://localhost:5173 にアクセス
+
+## 🚀 デプロイ
+
+### フロントエンドのデプロイ
+```bash
 npm run build
+firebase deploy --only hosting
+```
 
-# ビルド結果をプレビュー
-npm run preview
-
-# TypeScript型チェック
-npm run typecheck
-
-# Firebase Functions の開発・デプロイ
-cd functions && npm run build
+### Cloud Functionsのデプロイ
+```bash
 firebase deploy --only functions
 ```
 
-## データについて
+### 全体のデプロイ
+```bash
+firebase deploy
+```
 
-- **保存場所**: Firebase Firestore
-- **永続性**: クラウドに永続保存
-- **共有**: リアルタイム同期で全デバイス間で共有
-- **認証**: Firebase Authentication による安全なアクセス
+## 💡 使い方
 
-## Firebase設定詳細
+### 初回利用
+1. **ログイン**: 「Googleでログイン」ボタンをクリック
+2. **自動登録**: 初回ログイン時にユーザー情報が自動登録される
 
-### Firebase Console での設定
+### 日常的な操作
+1. **入室**: 該当する部屋の「入室」ボタンをクリック
+2. **退室**: 該当する部屋の「退室」ボタンをクリック
+3. **鍵管理**: A2218室で鍵を持っている場合はチェックボックスを操作
+4. **状況確認**: 右側パネルで現在の在室者と鍵の所在を確認
+5. **履歴確認**: 下部パネルで最近の入退室履歴を確認
 
-1. [Firebase Console](https://console.firebase.google.com/) でプロジェクトを作成
-2. **Authentication** を有効化
-   - Sign-in method で Google を有効化
-   - 認証ドメインにデプロイ先を追加
-3. **Firestore Database** を作成
-   - セキュリティルールを設定
-4. **Functions** を有効化
-   - Node.js 18 ランタイムを選択
+## 📁 プロジェクト構造
 
-### Slack Webhook 設定
+```
+├── src/
+│   ├── components/
+│   │   ├── auth/           # 認証関連コンポーネント
+│   │   ├── room/           # 入退室管理コンポーネント
+│   │   └── ui/             # UI共通コンポーネント
+│   ├── hooks/              # カスタムフック
+│   ├── firebase/           # Firebase設定・API
+│   ├── types/              # TypeScript型定義
+│   └── App.tsx             # メインアプリケーション
+├── functions/
+│   └── src/
+│       └── index.ts        # Cloud Functions（Slack通知）
+├── public/                 # 静的ファイル
+└── firebase.json           # Firebase設定
+```
 
-1. [Slack API](https://api.slack.com/apps) でアプリを作成
-2. 「Incoming Webhooks」を有効化
-3. ワークスペースにアプリを追加してWebhook URLを取得
-4. Firebase Functions の環境変数に設定:
-   ```bash
-   firebase functions:config:set slack.webhook_url="YOUR_WEBHOOK_URL"
-   ```
+## 🧩 主要コンポーネント
 
-## システム機能詳細
+### フロントエンド
+- **App.tsx**: メインアプリケーションロジック
+- **RoomCard**: 入退室操作UI（A2218室/院生室）
+- **CurrentStatus**: 現在の在室状況表示
+- **ActivityHistory**: 入退室履歴表示
+- **useAuth**: 認証状態管理
+- **useFirestore**: Firestoreデータ管理
+- **useAttendance**: 入退室操作ロジック
 
-### 自動Slack通知
-- 入退室時に自動でSlack通知
-- 日本時間（JST）での正確な時刻表示
-- 鍵の取得・返却状況も通知
+### バックエンド
+- **onLogCreate**: ログ作成時のSlack通知トリガー
+- **onUserKeyStatusChange**: 鍵状態変更の監視
+- **sendTestMessage**: テスト用メッセージ送信（HTTPS関数）
+- **resetData**: 開発用データリセット（HTTPS関数）
+
+## 📊 データ構造
+
+### Firestoreコレクション
+
+#### `users` (ユーザー情報)
+```typescript
+{
+  uid: string;           // Firebase Auth UID
+  name: string;          // 表示名
+  email: string;         // メールアドレス
+  avatar?: string;       // プロフィール画像URL
+  provider: string;      // 認証プロバイダー
+  room2218: boolean;     // A2218室在室状態
+  gradRoom: boolean;     // 院生室在室状態
+  hasKey: boolean;       // 鍵保持状態
+  lastActivity: Timestamp;
+  createdAt: Timestamp;
+}
+```
+
+#### `logs` (入退室ログ)
+```typescript
+{
+  userId: string;        // ユーザーUID
+  userName: string;      // ユーザー名
+  action: string;        // アクション（入室/退室/鍵取得/鍵返却）
+  room: string;          // 部屋名
+  timestamp: Timestamp;  // 実行時刻
+  metadata?: object;     // 追加メタデータ
+}
+```
+
+## 🔧 利用可能なスクリプト
+
+```bash
+# 開発
+npm run dev              # 開発サーバー起動
+npm run build           # 本番ビルド
+npm run preview         # ビルド結果のプレビュー
+
+# 品質管理
+npm run typecheck       # TypeScript型チェック
+npm run lint            # ESLintチェック（設定されていない）
+
+# Firebase Functions
+cd functions
+npm run build           # TypeScriptコンパイル
+npm run build:watch     # ウォッチモードでコンパイル
+npm run serve           # エミュレーター起動
+npm run deploy          # Functionsデプロイ
+```
+
+## 🛡️ セキュリティ
+
+### Firestore セキュリティルール
+- 認証されたユーザーのみアクセス可能
+- ユーザーは自分のデータのみ編集可能
+- ログは全ユーザーが読取り可能、書込みは制限
+
+### Firebase Authentication
+- Google OAuth認証のみ有効
+- セキュアなトークンベース認証
+- 自動的なセッション管理
+
+## 🔍 主な機能の実装
 
 ### リアルタイム同期
-- Firestore によるリアルタイムデータ同期
-- 複数デバイス間での即座な状態更新
+- Firestoreのリアルタイムリスナーを使用
+- 複数デバイス間での即座な状態同期
+- useFirestoreフックによる効率的なデータ管理
 
-### セキュリティ
-- Firebase Authentication による認証
-- Firestore セキュリティルールによるアクセス制御
+### 鍵管理の排他制御
+- hasKeyフィールドによる簡潔な実装
+- クライアントサイドでの状態チェック
+- Cloud Functionsでの通知制御
 
-## 将来の拡張予定
+### Slack通知システム
+- Cloud Functions トリガーベース
+- 日本時間（JST）での時刻表示
+- リトライ機能付きのHTTPリクエスト
+- 重複通知防止機能
 
-- 管理者機能（ユーザー管理、統計表示）
-- 統計・レポート機能
-- モバイルアプリ対応
-- 入退室履歴のCSVエクスポート
+## 🚨 注意事項
 
-## サポート
+- 本番環境では適切なFirestoreセキュリティルールを設定してください
+- Slack Webhook URLは機密情報として適切に管理してください
+- resetData関数は開発環境でのみ使用してください
+
+## 📞 サポート
 
 問題や質問がある場合は、GitHubのIssuesまでお知らせください。
-
----
-
-🤖 このプロジェクトはClaude Codeで生成されました。
