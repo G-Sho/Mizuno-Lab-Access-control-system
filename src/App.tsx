@@ -15,7 +15,7 @@ import {
   useCurrentTime
 } from './hooks';
 
-const RefactoredFirebaseApp: React.FC = () => {
+const App: React.FC = () => {
   const {
     currentUser,
     authLoading,
@@ -91,4 +91,4 @@ const RefactoredFirebaseApp: React.FC = () => {
   );
 };
 
-export default RefactoredFirebaseApp;
+export default App;
