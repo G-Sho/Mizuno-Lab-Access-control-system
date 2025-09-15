@@ -32,7 +32,8 @@
       "Bash(firebase auth:list:*)",
       "Bash(firebase apps:list:*)",
       "Bash(firebase apps:sdkconfig:*)",
-      "Bash(dir .env)"
+      "Bash(dir .env)",
+      "Bash(firebase functions:config:get:*)"
     ],
     "deny": []
   }

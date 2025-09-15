@@ -3,165 +3,165 @@ import * as admin from "firebase-admin";
 
 // Firebase Admin初期化
 admin.initializeApp();
-
 const db = admin.firestore();
 
-// Slack Webhook URLは環境変数から取得
-const SLACK_WEBHOOK_URL = functions.config().slack?.webhook_url;
+// Slack Webhook URL設定
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || functions.config().slack?.webhook_url;
 
-// タイムスタンプを日本時間でフォーマットする共通関数
+// 定数
+const JST_OFFSET = 9 * 60 * 60 * 1000; // 日本時間オフセット（9時間）
+const ACTION_MAP = {
+  "enter": "入室",
+  "exit": "退室",
+  "takekey": "鍵取得",
+  "returnkey": "鍵返却"
+} as const;
+
+/**
+ * 日本時間でフォーマットされた時刻文字列を返す
+ */
 function formatTimestamp(timestamp?: FirebaseFirestore.Timestamp | Date): string {
   let date: Date;
 
-  if (timestamp && typeof timestamp.toDate === "function") {
-    // Firestore Timestampの場合
-    date = timestamp.toDate();
+  if (timestamp && typeof (timestamp as any).toDate === "function") {
+    date = (timestamp as FirebaseFirestore.Timestamp).toDate();
   } else if (timestamp instanceof Date) {
-    // Dateオブジェクトの場合
     date = timestamp;
   } else {
-    // timestampがない場合は現在時刻を使用
     date = new Date();
   }
 
-  return date.toLocaleString("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
+  const jstDate = new Date(date.getTime() + JST_OFFSET);
+
+  return [
+    jstDate.getUTCFullYear(),
+    String(jstDate.getUTCMonth() + 1).padStart(2, '0'),
+    String(jstDate.getUTCDate()).padStart(2, '0')
+  ].join('/') + ' ' + [
+    String(jstDate.getUTCHours()).padStart(2, '0'),
+    String(jstDate.getUTCMinutes()).padStart(2, '0')
+  ].join(':');
 }
 
-// Slack メッセージ送信関数（リトライ機能付き）
-async function sendSlackMessage(message: string, retryCount = 3): Promise<void> {
+/**
+ * Slackに通知を送信する（リトライ機能付き）
+ */
+async function sendSlackMessage(blocks: Record<string, any>[], retryCount = 3): Promise<void> {
   if (!SLACK_WEBHOOK_URL) {
-    console.warn("Slack webhook URL not configured");
-    return;
+    throw new Error("Slack webhook URL not configured");
   }
 
   for (let attempt = 1; attempt <= retryCount; attempt++) {
     try {
       const response = await fetch(SLACK_WEBHOOK_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: message,
+          blocks,
           username: "研究室入退室管理システム",
           icon_emoji: ":office:",
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Slack API error: ${response.status} - ${response.statusText}`);
+      if (response.ok) return;
+
+      // Rate Limit処理
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 1000 * attempt;
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
       }
 
-      // 成功した場合はリターン
-      return;
+      throw new Error(`Slack API error: ${response.status} - ${response.statusText}`);
     } catch (error) {
       console.error(`Failed to send Slack message (attempt ${attempt}/${retryCount}):`, error);
 
-      // 最後の試行でない場合は少し待機してからリトライ
       if (attempt < retryCount) {
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       } else {
-        // 全ての試行が失敗した場合
-        console.error("All retry attempts failed for Slack message:", message);
+        console.error("All retry attempts failed for Slack notification");
+        throw error;
       }
     }
   }
 }
 
-// 入退室メッセージフォーマット
-function formatAttendanceMessage(
-  userName: string,
-  action: string,
-  room: string,
-  timestamp: string
-): string {
-  const preposition = action === "入室" ? "に" : "から";
-  return `*${userName}* さんが *${room}* ${preposition} *${action}* しました\n` +
-         `時刻: ${timestamp}`;
-}
+/**
+ * 入退室・鍵管理ログのSlack Block Kitブロックを作成
+ */
+function createLogBlocks(userName: string, action: string, room: string, timestamp: string): Record<string, any>[] {
+  const normalizedAction = action.normalize('NFC').trim();
 
-// 鍵管理メッセージフォーマット  
-function formatKeyMessage(
-  userName: string,
-  action: string,
-  timestamp: string,
-  keyHolderName?: string
-): string {
-  let message = `*${userName}* さんが *${action}* しました\n`;
-  
-  if (keyHolderName && action === "鍵取得") {
-    message += `現在の鍵保持者: *${keyHolderName}*\n`;
-  } else if (action === "鍵返却") {
-    message += "鍵は詰所に戻りました\n";
+  // 鍵管理は専用フォーマット、入退室は従来フォーマット
+  if (normalizedAction.includes("鍵")) {
+    // 鍵管理専用デザイン（絵文字なし）
+    const keyAction = normalizedAction.includes("鍵取得") ? "鍵取得" : "鍵返却";
+
+    return [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${keyAction} | *${userName}* | ${timestamp} | A2218室`
+        }
+      },
+      {
+        type: "context",
+        elements: [{
+          type: "mrkdwn",
+          text: "Mizuno Lab 入退室管理システムより"
+        }]
+      }
+    ];
+  } else {
+    // 通常の入退室デザイン（絵文字あり）
+    const isEntry = normalizedAction.includes("入室");
+    const statusText = isEntry ? "🟢 入室" : "🔴 退室";
+
+    return [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${statusText} | *${userName}* | ${timestamp} | ${room}`
+        }
+      },
+      {
+        type: "context",
+        elements: [{
+          type: "mrkdwn",
+          text: "Mizuno Lab 入退室管理システムより"
+        }]
+      }
+    ];
   }
-  
-  message += `時刻: ${timestamp}`;
-  return message;
 }
 
-// Firestoreのlogsコレクションへの書き込みを監視
+/**
+ * Firestoreログ作成時のSlack通知
+ */
 export const onLogCreate = functions.firestore
   .document("logs/{logId}")
   .onCreate(async (snapshot, _context) => {
     try {
       const logData = snapshot.data();
-      
-      if (!logData) {
-        console.error("Log data is empty");
-        return;
-      }
+      if (!logData) return;
 
-      const {
-        userName,
-        action,
-        room,
-        timestamp,
-      } = logData;
-
-      // タイムスタンプをフォーマット（日本時間）
+      const { userName, action, room, timestamp } = logData;
       const formattedTime = formatTimestamp(timestamp);
+      const blocks = createLogBlocks(userName, action, room, formattedTime);
 
-      let message: string;
-
-      if (action === "鍵取得" || action === "鍵返却") {
-        // 鍵の取得/返却の場合、現在の鍵保持者を取得
-        let keyHolderName: string | undefined;
-        
-        if (action === "鍵取得") {
-          const usersSnapshot = await db.collection("users")
-            .where("hasKey", "==", true)
-            .limit(1)
-            .get();
-          
-          if (!usersSnapshot.empty) {
-            keyHolderName = usersSnapshot.docs[0].data().name;
-          }
-        }
-        
-        message = formatKeyMessage(userName, action, formattedTime, keyHolderName);
-      } else {
-        // 通常の入退室の場合
-        message = formatAttendanceMessage(userName, action, room, formattedTime);
-      }
-
-      // Slackにメッセージを送信
-      await sendSlackMessage(message);
-      
-      console.log(`Slack notification sent for user ${userName}: ${action} at ${room}`);
+      await sendSlackMessage(blocks);
+      console.log(`Slack notification sent: ${userName} ${action} at ${room}`);
     } catch (error) {
-      console.error("Error in onLogCreate function:", error);
+      console.error("Error in onLogCreate:", error);
     }
   });
 
-// 鍵の状態変更を監視（ログ作成を伴わない直接的な状態変更のみ通知）
+/**
+ * 鍵状態変更の監視（重複通知防止）
+ */
 export const onUserKeyStatusChange = functions.firestore
   .document("users/{userId}")
   .onUpdate(async (change, context) => {
@@ -169,79 +169,87 @@ export const onUserKeyStatusChange = functions.firestore
       const beforeData = change.before.data();
       const afterData = change.after.data();
 
-      // hasKeyフィールドの変更をチェック
-      if (beforeData.hasKey !== afterData.hasKey) {
-        const userId = context.params.userId;
-        const userName = afterData.name;
-        const action = afterData.hasKey ? "鍵取得" : "鍵返却";
+      if (beforeData.hasKey === afterData.hasKey) return;
 
-        // 最近（5秒以内）に同じユーザーの同じアクションのログが作成されているかチェック
-        // これにより onLogCreate との重複通知を防ぐ
-        const fiveSecondsAgo = new Date(Date.now() - 5000);
-        const recentLogsSnapshot = await db.collection("logs")
-          .where("userId", "==", userId)
-          .where("action", "==", action)
-          .where("timestamp", ">", fiveSecondsAgo)
-          .limit(1)
-          .get();
+      const userName = afterData.name;
+      const action = afterData.hasKey ? "鍵取得" : "鍵返却";
 
-        // 最近のログがない場合のみ通知（直接的な状態変更）
-        if (recentLogsSnapshot.empty) {
-          const formattedTime = formatTimestamp();
+      // 重複通知防止：5秒以内の同一ログをチェック
+      const fiveSecondsAgo = new Date(Date.now() - 5000);
+      const recentLogs = await db.collection("logs")
+        .where("userId", "==", context.params.userId)
+        .where("action", "==", action)
+        .where("timestamp", ">", fiveSecondsAgo)
+        .limit(1)
+        .get();
 
-          let keyHolderName: string | undefined;
-          if (afterData.hasKey) {
-            keyHolderName = userName;
-          }
-
-          const message = formatKeyMessage(userName, action, formattedTime, keyHolderName);
-          await sendSlackMessage(message);
-
-          console.log(`Direct key status notification sent for user ${userName}: ${action}`);
-        } else {
-          console.log(`Skipping duplicate key notification for user ${userName}: ${action} (recent log exists)`);
-        }
+      if (recentLogs.empty) {
+        const blocks = createLogBlocks(userName, action, "A2218室", formatTimestamp());
+        await sendSlackMessage(blocks);
+        console.log(`Direct key status notification: ${userName} ${action}`);
       }
     } catch (error) {
-      console.error("Error in onUserKeyStatusChange function:", error);
+      console.error("Error in onUserKeyStatusChange:", error);
     }
   });
 
-// 手動でSlackメッセージを送信するHTTPS関数（テスト用）
+/**
+ * テスト用メッセージ送信
+ */
 export const sendTestMessage = functions.https.onRequest(async (req, res) => {
   try {
-    const message = req.body?.message || "テストメッセージです";
-    await sendSlackMessage(message);
-    res.json({ success: true, message: "Message sent successfully" });
+    const testUser = req.body?.userName || "TestUser";
+    const testAction = req.body?.action || "enter";
+    const testRoom = req.body?.room || "Room2218";
+
+    // 日本語の文字化けを防ぐため、英語パラメータを日本語に明示的に変換
+    const jpAction = ACTION_MAP[testAction as keyof typeof ACTION_MAP] || testAction;
+
+    // 部屋名も英語パラメータの場合は日本語に変換
+    const jpRoom = testRoom === "Room2218" ? "A2218室" : testRoom;
+
+    const blocks = createLogBlocks(testUser, jpAction, jpRoom, formatTimestamp());
+
+    await sendSlackMessage(blocks);
+    res.json({
+      success: true,
+      message: "Test notification sent successfully",
+      params: { user: testUser, action: jpAction, room: jpRoom }
+    });
   } catch (error) {
     console.error("Test message error:", error);
     res.status(500).json({ success: false, error: String(error) });
   }
 });
 
-// データリセット用の関数（開発時のみ使用）
+/**
+ * データリセット（開発環境のみ）
+ */
 export const resetData = functions.https.onRequest(async (req, res) => {
   try {
-    // 本番環境では実行させない
     if (process.env.NODE_ENV === "production") {
       res.status(403).json({ error: "Not allowed in production" });
       return;
     }
-    
-    // 全ユーザーを削除
-    const usersSnapshot = await db.collection("users").get();
-    const userDeletePromises = usersSnapshot.docs.map(doc => doc.ref.delete());
-    
-    // 全ログを削除
-    const logsSnapshot = await db.collection("logs").get();
-    const logDeletePromises = logsSnapshot.docs.map(doc => doc.ref.delete());
-    
-    await Promise.all([...userDeletePromises, ...logDeletePromises]);
-    
+
+    // データ削除
+    const [usersSnapshot, logsSnapshot] = await Promise.all([
+      db.collection("users").get(),
+      db.collection("logs").get()
+    ]);
+
+    const deletePromises = [
+      ...usersSnapshot.docs.map(doc => doc.ref.delete()),
+      ...logsSnapshot.docs.map(doc => doc.ref.delete())
+    ];
+
+    await Promise.all(deletePromises);
+
     // Slack通知
-    await sendSlackMessage("データがリセットされました");
-    
-    res.json({ success: true, message: "Data reset successfully" });
+    const resetBlocks = createLogBlocks("System", "データリセット", "管理", formatTimestamp());
+    await sendSlackMessage(resetBlocks);
+
+    res.json({ success: true, message: "Data reset completed" });
   } catch (error) {
     console.error("Reset data error:", error);
     res.status(500).json({ success: false, error: String(error) });
