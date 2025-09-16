@@ -96,15 +96,8 @@ function createLogBlocks(userName, action, room, timestamp) {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${keyAction} | *${userName}* | ${timestamp} | A2218室`
+                    text: `${keyAction} | *${userName}* | A2218室`
                 }
-            },
-            {
-                type: "context",
-                elements: [{
-                        type: "mrkdwn",
-                        text: "Mizuno Lab 入退室管理システムより"
-                    }]
             }
         ];
     }
@@ -117,15 +110,8 @@ function createLogBlocks(userName, action, room, timestamp) {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${statusText} | *${userName}* | ${timestamp} | ${room}`
+                    text: `${statusText} | *${userName}* | ${room}`
                 }
-            },
-            {
-                type: "context",
-                elements: [{
-                        type: "mrkdwn",
-                        text: "Mizuno Lab 入退室管理システムより"
-                    }]
             }
         ];
     }
