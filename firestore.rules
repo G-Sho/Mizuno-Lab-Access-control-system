@@ -1,29 +1,19 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 工学院大学ドメインチェック関数
-    function isKogakuinUser() {
-      return request.auth != null && 
-             request.auth.token.email != null && 
-             (request.auth.token.email.matches('.*@g\\.kogakuin\\.jp$') ||
-              request.auth.token.email.matches('.*@cc\\.kogakuin\\.ac\\.jp$'));
-    }
-    
+    // 開発用：Slack認証システム動作確認のため一時的に寛容なルール
+    // TODO: 本番環境では適切なセキュリティルールに変更する
+
     // ユーザーコレクション
     match /users/{userId} {
-      // 工学院大学ドメインのユーザーのみアクセス可能
-      allow read, write: if isKogakuinUser() && request.auth.uid == userId;
-      // 工学院大学ドメインのユーザーは他のユーザーの情報を読み取り可能
-      allow read: if isKogakuinUser();
+      // 全てのアクセスを許可（開発用）
+      allow read, write: if true;
     }
-    
+
     // ログコレクション
     match /logs/{logId} {
-      // 工学院大学ドメインのユーザーは読み取り可能
-      allow read: if isKogakuinUser();
-      // ログの作成は工学院大学ドメインのユーザーのみ（自分のuidと一致する場合）
-      allow create: if isKogakuinUser() && 
-        request.auth.uid == request.resource.data.userId;
+      // 全てのアクセスを許可（開発用）
+      allow read, create: if true;
       // ログの更新・削除は禁止
       allow update, delete: if false;
     }

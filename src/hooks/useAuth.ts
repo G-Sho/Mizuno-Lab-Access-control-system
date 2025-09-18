@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { 
-  signInWithGoogle, 
-  signOut, 
-  onAuthStateChange, 
-  FirebaseAuthUser 
+import {
+  signInWithSlack,
+  handleSlackCallback,
+  signOut,
+  onAuthStateChange,
+  FirebaseAuthUser
 } from '../firebase/auth';
 import { saveUser } from '../firebase/firestore';
 
@@ -15,9 +16,15 @@ export const useAuth = () => {
   useEffect(() => {
     const handleAuthStateChange = async (user: FirebaseAuthUser | null) => {
       console.log('Auth state changed:', user);
+
+      // 現在のユーザー状態と同じ場合は何もしない（重複更新を防ぐ）
+      if (currentUser?.uid === user?.uid) {
+        return;
+      }
+
       setCurrentUser(user);
       setAuthLoading(false);
-      
+
       if (user) {
         try {
           // 新規ユーザーのみ初期値で保存、既存ユーザーは基本情報のみ更新
@@ -28,7 +35,7 @@ export const useAuth = () => {
             avatar: user.avatar,
             provider: user.provider,
             room2218: false,  // 新規ユーザーのみ使用される
-            gradRoom: false,  // 新規ユーザーのみ使用される  
+            gradRoom: false,  // 新規ユーザーのみ使用される
             hasKey: false     // 新規ユーザーのみ使用される
           });
         } catch (error) {
@@ -39,19 +46,21 @@ export const useAuth = () => {
 
     const unsubscribe = onAuthStateChange(handleAuthStateChange);
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
-  const handleGoogleLogin = async () => {
+  const handleSlackLogin = async () => {
     setAuthLoading(true);
     setAuthError(null);
     try {
-      const result = await signInWithGoogle();
+      const result = await signInWithSlack();
       if (result) {
-        console.log('Login successful:', result);
+        console.log('Slack login successful:', result);
+        // 即座にユーザー状態を更新してローディング状態を解除
+        setCurrentUser(result);
+        setAuthLoading(false);
       }
     } catch (error: any) {
       setAuthError(error.message);
-    } finally {
       setAuthLoading(false);
     }
   };
@@ -68,7 +77,7 @@ export const useAuth = () => {
     currentUser,
     authLoading,
     authError,
-    handleGoogleLogin,
+    handleSlackLogin,
     handleLogout
   };
 };

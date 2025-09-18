@@ -1,105 +1,89 @@
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
+import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
   User
 } from 'firebase/auth';
 import { auth } from './config';
 import { FirebaseAuthUser } from '../types';
+import { slackAuthService } from '../services/slackAuth';
 
 // Re-export types for backward compatibility
 export type { FirebaseAuthUser } from '../types';
 
-// Google認証プロバイダー
-const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('email');
-googleProvider.addScope('profile');
+// 認証状態変更の通知コールバック
+let currentAuthCallback: ((user: FirebaseAuthUser | null) => void) | null = null;
 
-// 工学院大学のドメインチェック
-const isKogakuinEmail = (email: string): boolean => {
-  return email.endsWith('@g.kogakuin.jp') || email.endsWith('@cc.kogakuin.ac.jp');
-};
-
-// Google認証でサインイン（ポップアップ方式）
-export const signInWithGoogle = async (): Promise<FirebaseAuthUser | null> => {
+// Slack OAuth認証を開始
+export const signInWithSlack = async (): Promise<FirebaseAuthUser | null> => {
   try {
-    console.log('Starting Google sign in with popup...');
-    
-    // ポップアップブロックを回避するため、ユーザー操作直後に実行
-    const result = await signInWithPopup(auth, googleProvider);
-    const user = result.user;
-    
-    console.log('Google sign in successful:', {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      photoURL: user.photoURL
-    });
-    
-    // 工学院大学のドメインチェック
-    if (!user.email || !isKogakuinEmail(user.email)) {
-      // 認証されたユーザーをサインアウト
-      await signOut();
-      throw new Error('工学院大学のアカウント（@g.kogakuin.jp または @cc.kogakuin.ac.jp）でのみログインできます。');
-    }
-    
-    return {
-      uid: user.uid,
-      name: user.displayName || user.email || 'Unknown User',
-      email: user.email || '',
-      avatar: user.photoURL || undefined,
-      provider: 'google'
-    };
+    const user = await slackAuthService.signInWithPopup();
+    console.log('Slack sign in successful:', user);
+
+    // 認証状態変更を手動で通知（遅延実行で確実に呼び出し）
+    setTimeout(() => {
+      if (currentAuthCallback) {
+        console.log('Manually triggering auth state change with user:', user);
+        currentAuthCallback(user);
+      }
+    }, 100);
+
+    return user;
   } catch (error: any) {
-    console.error('Google sign in error:', error);
-    console.error('Error code:', error.code);
-    console.error('Error message:', error.message);
-    
-    // 具体的なエラーメッセージを表示
-    if (error.code === 'auth/popup-blocked') {
-      throw new Error('ポップアップがブロックされています。ブラウザの設定を確認してください。');
-    } else if (error.code === 'auth/popup-closed-by-user') {
-      throw new Error('認証がキャンセルされました。');
-    } else if (error.code === 'auth/unauthorized-domain') {
-      console.error('Unauthorized domain error. Current domain:', window.location.origin);
-      throw new Error('このドメインは認証が許可されていません。Firebase Console で設定を確認してください。');
-    } else {
-      console.error('Full error object:', error);
-      throw new Error(`Google認証エラー: ${error.message} (Code: ${error.code})`);
-    }
+    console.error('Slack authentication error:', error);
+    throw new Error(`Slack認証エラー: ${error.message}`);
   }
 };
 
 // サインアウト
 export const signOut = async (): Promise<void> => {
   try {
-    await firebaseSignOut(auth);
+    // Slack認証情報をクリア
+    slackAuthService.signOut();
+
+    // 認証状態変更を手動で通知
+    if (currentAuthCallback) {
+      currentAuthCallback(null);
+    }
+
+    // Firebase認証からもサインアウト（必要に応じて）
+    if (auth.currentUser) {
+      await firebaseSignOut(auth);
+    }
   } catch (error) {
     console.error('Sign out error:', error);
     throw new Error('サインアウトに失敗しました');
   }
 };
 
-// 認証状態の監視
+// 認証状態の監視（Slack認証対応）
 export const onAuthStateChange = (callback: (user: FirebaseAuthUser | null) => void) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    console.log('Firebase auth state changed:', user ? {
+  // 現在のコールバックを保存
+  currentAuthCallback = callback;
+
+  // 初回チェック（一度だけ）
+  const slackUser = slackAuthService.getStoredSlackUser();
+  console.log('Auth state check - initial Slack user:', slackUser);
+
+  // 即座にコールバックを呼び出し（初回のみ）
+  callback(slackUser);
+
+  // Firebase認証の監視（Slackユーザーがいない場合のみ有効）
+  const firebaseUnsubscribe = onAuthStateChanged(auth, async (user: User | null) => {
+    const currentSlackUser = slackAuthService.getStoredSlackUser();
+
+    // Slackユーザーがいる場合はFirebase認証を無視
+    if (currentSlackUser) {
+      return;
+    }
+
+    console.log('Firebase auth state changed (no Slack user):', user ? {
       uid: user.uid,
       email: user.email,
       displayName: user.displayName,
       providerData: user.providerData
     } : null);
-    
+
     if (user) {
-      // 工学院大学ドメインのチェック
-      if (!user.email || !isKogakuinEmail(user.email)) {
-        console.log('Non-Kogakuin user detected, signing out...');
-        await signOut();
-        callback(null);
-        return;
-      }
-      
       const authUser: FirebaseAuthUser = {
         uid: user.uid,
         name: user.displayName || user.email || 'Unknown User',
@@ -107,12 +91,15 @@ export const onAuthStateChange = (callback: (user: FirebaseAuthUser | null) => v
         avatar: user.photoURL || undefined,
         provider: user.providerData[0]?.providerId || 'firebase'
       };
-      console.log('Calling callback with auth user:', authUser);
       callback(authUser);
     } else {
-      console.log('Calling callback with null user');
       callback(null);
     }
   });
+
+  return () => {
+    firebaseUnsubscribe();
+    currentAuthCallback = null;
+  };
 };
 

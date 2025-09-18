@@ -33,7 +33,14 @@
       "Bash(firebase apps:list:*)",
       "Bash(firebase apps:sdkconfig:*)",
       "Bash(dir .env)",
-      "Bash(firebase functions:config:get:*)"
+      "Bash(firebase functions:config:get:*)",
+      "Bash(firebase hosting:channel:list:*)",
+      "Bash(firebase functions:list:*)",
+      "WebFetch(domain:mizuno-lab-access-control.web.app)",
+      "Bash(firebase hosting:channel:deploy:*)",
+      "Bash(npm uninstall:*)",
+      "WebFetch(domain:us-central1-mizuno-lab-access-control.cloudfunctions.net)",
+      "Bash(firebase functions:log:*)"
     ],
     "deny": []
   }

@@ -1,14 +1,14 @@
 "use strict";
-var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetData = exports.sendTestMessage = exports.onUserKeyStatusChange = exports.onLogCreate = void 0;
+exports.resetData = exports.sendTestMessage = exports.slackOAuthCallback = exports.onUserKeyStatusChange = exports.onLogCreate = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const node_fetch_1 = require("node-fetch");
 // Firebase Admin初期化
 admin.initializeApp();
 const db = admin.firestore();
 // Slack Webhook URL設定
-const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || ((_a = functions.config().slack) === null || _a === void 0 ? void 0 : _a.webhook_url);
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 // 定数
 const JST_OFFSET = 9 * 60 * 60 * 1000; // 日本時間オフセット（9時間）
 const ACTION_MAP = {
@@ -50,7 +50,7 @@ async function sendSlackMessage(blocks, retryCount = 3) {
     }
     for (let attempt = 1; attempt <= retryCount; attempt++) {
         try {
-            const response = await fetch(SLACK_WEBHOOK_URL, {
+            const response = await (0, node_fetch_1.default)(SLACK_WEBHOOK_URL, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -85,19 +85,26 @@ async function sendSlackMessage(blocks, retryCount = 3) {
 /**
  * 入退室・鍵管理ログのSlack Block Kitブロックを作成
  */
-function createLogBlocks(userName, action, room, timestamp) {
+function createLogBlocks(userName, action, room, timestamp, userAvatar) {
     const normalizedAction = action.normalize('NFC').trim();
     // 鍵管理は専用フォーマット、入退室は従来フォーマット
     if (normalizedAction.includes("鍵")) {
-        // 鍵管理専用デザイン（絵文字なし）
+        // 鍵管理専用デザイン
         const keyAction = normalizedAction.includes("鍵取得") ? "鍵取得" : "鍵返却";
         return [
             {
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `${keyAction} | *${userName}* | A2218室`
-                }
+                type: "context",
+                elements: [
+                    {
+                        type: "mrkdwn",
+                        text: `${keyAction} | *${userName}* | A2218室`
+                    },
+                    ...(userAvatar ? [{
+                            type: "image",
+                            image_url: userAvatar,
+                            alt_text: userName
+                        }] : [])
+                ]
             }
         ];
     }
@@ -107,11 +114,18 @@ function createLogBlocks(userName, action, room, timestamp) {
         const statusText = isEntry ? "🟢 入室" : "🔴 退室";
         return [
             {
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `${statusText} | *${userName}* | ${room}`
-                }
+                type: "context",
+                elements: [
+                    {
+                        type: "mrkdwn",
+                        text: `${statusText} | *${userName}* | ${room}`
+                    },
+                    ...(userAvatar ? [{
+                            type: "image",
+                            image_url: userAvatar,
+                            alt_text: userName
+                        }] : [])
+                ]
             }
         ];
     }
@@ -126,9 +140,21 @@ exports.onLogCreate = functions.firestore
         const logData = snapshot.data();
         if (!logData)
             return;
-        const { userName, action, room, timestamp } = logData;
+        const { userName, action, room, timestamp, userId } = logData;
+        // ユーザー情報を取得してアバターURLを入手
+        let userAvatar;
+        if (userId) {
+            try {
+                const userDoc = await db.collection('users').doc(userId).get();
+                const userData = userDoc.data();
+                userAvatar = userData === null || userData === void 0 ? void 0 : userData.avatar;
+            }
+            catch (error) {
+                console.error('Error fetching user avatar:', error);
+            }
+        }
         const formattedTime = formatTimestamp(timestamp);
-        const blocks = createLogBlocks(userName, action, room, formattedTime);
+        const blocks = createLogBlocks(userName, action, room, formattedTime, userAvatar);
         await sendSlackMessage(blocks);
         console.log(`Slack notification sent: ${userName} ${action} at ${room}`);
     }
@@ -149,6 +175,7 @@ exports.onUserKeyStatusChange = functions.firestore
             return;
         const userName = afterData.name;
         const action = afterData.hasKey ? "鍵取得" : "鍵返却";
+        const userAvatar = afterData.avatar;
         // 重複通知防止：5秒以内の同一ログをチェック
         const fiveSecondsAgo = new Date(Date.now() - 5000);
         const recentLogs = await db.collection("logs")
@@ -158,7 +185,7 @@ exports.onUserKeyStatusChange = functions.firestore
             .limit(1)
             .get();
         if (recentLogs.empty) {
-            const blocks = createLogBlocks(userName, action, "A2218室", formatTimestamp());
+            const blocks = createLogBlocks(userName, action, "A2218室", formatTimestamp(), userAvatar);
             await sendSlackMessage(blocks);
             console.log(`Direct key status notification: ${userName} ${action}`);
         }
@@ -168,10 +195,151 @@ exports.onUserKeyStatusChange = functions.firestore
     }
 });
 /**
+ * Slack OAuth認証コールバック処理
+ */
+exports.slackOAuthCallback = functions.https.onRequest(async (req, res) => {
+    var _a, _b;
+    try {
+        const { code, state } = req.query;
+        if (!code) {
+            throw new Error('Authorization code is required');
+        }
+        // Slack OAuth token exchange
+        console.log('Starting Slack OAuth token exchange with code:', code);
+        console.log('Client ID available:', !!process.env.SLACK_CLIENT_ID);
+        console.log('Client Secret available:', !!process.env.SLACK_CLIENT_SECRET);
+        const tokenResponse = await (0, node_fetch_1.default)('https://slack.com/api/oauth.v2.access', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                client_id: process.env.SLACK_CLIENT_ID || '',
+                client_secret: process.env.SLACK_CLIENT_SECRET || '',
+                code: code,
+                redirect_uri: 'https://us-central1-mizuno-lab-access-control.cloudfunctions.net/slackOAuthCallback',
+            }),
+        });
+        console.log('Token exchange response status:', tokenResponse.status);
+        const tokenData = await tokenResponse.json();
+        console.log('Token data:', JSON.stringify(tokenData, null, 2));
+        if (!tokenData.ok) {
+            throw new Error(tokenData.error || 'Slack OAuth failed');
+        }
+        // ユーザー情報を取得（OAuth tokenから認証されたユーザー）
+        console.log('Access token available:', !!tokenData.access_token);
+        console.log('Authed user ID:', (_a = tokenData.authed_user) === null || _a === void 0 ? void 0 : _a.id);
+        console.log('Attempting to fetch user info from Slack API...');
+        const userId = (_b = tokenData.authed_user) === null || _b === void 0 ? void 0 : _b.id;
+        if (!userId) {
+            throw new Error('No user ID found in OAuth response');
+        }
+        const userResponse = await (0, node_fetch_1.default)(`https://slack.com/api/users.info?user=${userId}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${tokenData.access_token}`,
+                'Content-Type': 'application/json',
+            },
+        });
+        console.log('User info response status:', userResponse.status);
+        const userData = await userResponse.json();
+        console.log('User data response:', JSON.stringify(userData, null, 2));
+        if (!userData.ok || !userData.user) {
+            console.error('Slack users.info API error:', userData.error);
+            throw new Error(`Failed to get user info from Slack: ${userData.error || 'Unknown error'}`);
+        }
+        const user = userData.user;
+        const profile = user.profile || {};
+        // Firebase Auth カスタムトークンを作成
+        const firebaseUser = {
+            uid: `slack_${user.id}`,
+            name: profile.display_name || profile.real_name || user.name || 'Unknown User',
+            email: profile.email || user.email || '',
+            avatar: profile.image_192 || profile.image_72,
+            provider: 'slack',
+            slackUserId: user.id,
+            slackTeamId: tokenData.team.id
+        };
+        // Firestoreにユーザー情報を保存
+        await db.collection('users').doc(firebaseUser.uid).set(Object.assign(Object.assign({}, firebaseUser), { lastActivity: admin.firestore.FieldValue.serverTimestamp(), createdAt: admin.firestore.FieldValue.serverTimestamp(), room2218: false, gradRoom: false, hasKey: false }), { merge: true });
+        // 認証成功をクライアントに通知（ポップアップ用JavaScript）
+        res.send(`
+      <html>
+        <body>
+          <script>
+            const userData = ${JSON.stringify(firebaseUser)};
+            console.log('Sending auth success message:', userData);
+
+            if (window.opener) {
+              // 複数のオリジンに送信（開発環境と本番環境の両方に対応）
+              const origins = [
+                'https://mizuno-lab-access-control.web.app',
+                'http://localhost:5173',
+                'http://localhost:5174'
+              ];
+
+              origins.forEach(origin => {
+                try {
+                  window.opener.postMessage({
+                    type: 'SLACK_AUTH_SUCCESS',
+                    user: userData
+                  }, origin);
+                } catch (e) {
+                  console.log('Failed to send message to', origin, e);
+                }
+              });
+
+              // 少し待ってからウィンドウを閉じる
+              setTimeout(() => window.close(), 500);
+            } else {
+              // リダイレクト用（ポップアップが使えない場合）
+              window.location.href = '/?auth=success&user=' + encodeURIComponent(JSON.stringify(userData));
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    }
+    catch (error) {
+        console.error('Slack OAuth error:', error);
+        res.status(500).send(`
+      <html>
+        <body>
+          <script>
+            console.log('Sending auth error message:', '${String(error)}');
+
+            if (window.opener) {
+              const origins = [
+                'https://mizuno-lab-access-control.web.app',
+                'http://localhost:5173',
+                'http://localhost:5174'
+              ];
+
+              origins.forEach(origin => {
+                try {
+                  window.opener.postMessage({
+                    type: 'SLACK_AUTH_ERROR',
+                    error: '${String(error)}'
+                  }, origin);
+                } catch (e) {
+                  console.log('Failed to send error message to', origin, e);
+                }
+              });
+              window.close();
+            } else {
+              window.location.href = '/?auth=error&message=' + encodeURIComponent('${String(error)}');
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    }
+});
+/**
  * テスト用メッセージ送信
  */
 exports.sendTestMessage = functions.https.onRequest(async (req, res) => {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     try {
         const testUser = ((_a = req.body) === null || _a === void 0 ? void 0 : _a.userName) || "TestUser";
         const testAction = ((_b = req.body) === null || _b === void 0 ? void 0 : _b.action) || "enter";
@@ -180,7 +348,9 @@ exports.sendTestMessage = functions.https.onRequest(async (req, res) => {
         const jpAction = ACTION_MAP[testAction] || testAction;
         // 部屋名も英語パラメータの場合は日本語に変換
         const jpRoom = testRoom === "Room2218" ? "A2218室" : testRoom;
-        const blocks = createLogBlocks(testUser, jpAction, jpRoom, formatTimestamp());
+        // テスト用のアバター（オプション）
+        const testAvatar = (_d = req.body) === null || _d === void 0 ? void 0 : _d.avatar;
+        const blocks = createLogBlocks(testUser, jpAction, jpRoom, formatTimestamp(), testAvatar);
         await sendSlackMessage(blocks);
         res.json({
             success: true,
