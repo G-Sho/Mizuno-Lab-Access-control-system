@@ -6,6 +6,8 @@ export interface FirebaseAuthUser {
   email: string;
   avatar?: string;
   provider: string;
+  slackUserId?: string;
+  slackTeamId?: string;
 }
 
 export interface FirestoreUser {
@@ -14,6 +16,8 @@ export interface FirestoreUser {
   email: string;
   avatar?: string;
   provider: string;
+  slackUserId?: string;
+  slackTeamId?: string;
   room2218: boolean;
   gradRoom: boolean;
   hasKey: boolean;

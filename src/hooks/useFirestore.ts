@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   subscribeToUsers,
-  subscribeToLogs,
-  FirestoreUser,
-  FirestoreLogEntry
+  subscribeToLogs
 } from '../firebase/firestore';
+import { FirestoreUser, FirestoreLogEntry } from '../types';
 import { FirebaseAuthUser } from '../types';
 
 export const useFirestore = (currentUser: FirebaseAuthUser | null) => {

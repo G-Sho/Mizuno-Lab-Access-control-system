@@ -20,7 +20,7 @@ const App: React.FC = () => {
     currentUser,
     authLoading,
     authError,
-    handleGoogleLogin,
+    handleSlackLogin,
     handleLogout
   } = useAuth();
 
@@ -41,7 +41,7 @@ const App: React.FC = () => {
   if (!currentUser) {
     return (
       <LoginScreen
-        onGoogleLogin={handleGoogleLogin}
+        onSlackLogin={handleSlackLogin}
         authLoading={authLoading}
         authError={authError}
       />

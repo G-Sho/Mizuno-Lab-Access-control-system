@@ -10,16 +10,11 @@ import {
   orderBy,
   limit,
   onSnapshot,
-  serverTimestamp,
-  deleteDoc
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from './config';
 
-// Data types are now exported from ../types
 import { FirestoreUser, FirestoreLogEntry, AttendanceLog } from '../types';
-
-// Re-export types for backward compatibility
-export type { FirestoreUser, FirestoreLogEntry } from '../types';
 
 // コレクション参照
 const usersCollection = collection(db, 'users');
@@ -154,20 +149,3 @@ export const subscribeToLogs = (callback: (logs: FirestoreLogEntry[]) => void) =
   });
 };
 
-// データリセット（開発/テスト用）
-export const resetAllData = async (): Promise<void> => {
-  try {
-    // 全ユーザー削除
-    const usersSnapshot = await getDocs(usersCollection);
-    const userDeletePromises = usersSnapshot.docs.map(doc => deleteDoc(doc.ref));
-    
-    // 全ログ削除
-    const logsSnapshot = await getDocs(logsCollection);
-    const logDeletePromises = logsSnapshot.docs.map(doc => deleteDoc(doc.ref));
-    
-    await Promise.all([...userDeletePromises, ...logDeletePromises]);
-  } catch (error) {
-    console.error('Error resetting data:', error);
-    throw new Error('データのリセットに失敗しました');
-  }
-};
