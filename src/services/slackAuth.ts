@@ -27,7 +27,7 @@ class SlackAuthService {
       // ポップアップからのメッセージを監視
       const messageListener = (event: MessageEvent) => {
         // セキュリティ：Firebase Functionsからのメッセージのみ受信
-        if (event.origin !== 'https://us-central1-mizuno-lab-access-control.cloudfunctions.net') {
+        if (event.origin !== 'https://slackoauthcallback-ili5e72mnq-uc.a.run.app') {
           console.log('Ignoring message from origin:', event.origin);
           return;
         }
@@ -69,9 +69,10 @@ class SlackAuthService {
   private getAuthUrl(): string {
     const params = new URLSearchParams({
       client_id: this.clientId,
-      scope: 'users:read,users:read.email,users.profile:read',
-      redirect_uri: 'https://us-central1-mizuno-lab-access-control.cloudfunctions.net/slackOAuthCallback',
+      scope: 'users:read,users:read.email,users.profile:read,chat:write',
+      redirect_uri: 'https://slackoauthcallback-ili5e72mnq-uc.a.run.app',
       response_type: 'code',
+      user_scope: 'chat:write',
     });
 
     return `https://slack.com/oauth/v2/authorize?${params.toString()}`;

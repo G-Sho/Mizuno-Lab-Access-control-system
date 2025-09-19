@@ -17,11 +17,6 @@ export const useAuth = () => {
     const handleAuthStateChange = async (user: FirebaseAuthUser | null) => {
       console.log('Auth state changed:', user);
 
-      // 現在のユーザー状態と同じ場合は何もしない（重複更新を防ぐ）
-      if (currentUser?.uid === user?.uid) {
-        return;
-      }
-
       setCurrentUser(user);
       setAuthLoading(false);
 
@@ -46,7 +41,7 @@ export const useAuth = () => {
 
     const unsubscribe = onAuthStateChange(handleAuthStateChange);
     return () => unsubscribe();
-  }, [currentUser]);
+  }, []); // 依存配列を空にして、マウント時のみ実行
 
   const handleSlackLogin = async () => {
     setAuthLoading(true);

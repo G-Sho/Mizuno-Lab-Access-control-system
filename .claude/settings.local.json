@@ -40,7 +40,10 @@
       "Bash(firebase hosting:channel:deploy:*)",
       "Bash(npm uninstall:*)",
       "WebFetch(domain:us-central1-mizuno-lab-access-control.cloudfunctions.net)",
-      "Bash(firebase functions:log:*)"
+      "Bash(firebase functions:log:*)",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(firebase functions:delete:*)"
     ],
     "deny": []
   }
