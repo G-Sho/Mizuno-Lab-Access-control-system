@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
   signInWithSlack,
-  handleSlackCallback,
   signOut,
-  onAuthStateChange,
-  FirebaseAuthUser
+  onAuthStateChange
 } from '../firebase/auth';
+import { FirebaseAuthUser } from '../types';
 import { saveUser } from '../firebase/firestore';
 
 export const useAuth = () => {

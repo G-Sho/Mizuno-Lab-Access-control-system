@@ -7,9 +7,6 @@ import { auth } from './config';
 import { FirebaseAuthUser } from '../types';
 import { slackAuthService } from '../services/slackAuth';
 
-// Re-export types for backward compatibility
-export type { FirebaseAuthUser } from '../types';
-
 // 認証状態変更の通知コールバック
 let currentAuthCallback: ((user: FirebaseAuthUser | null) => void) | null = null;
 

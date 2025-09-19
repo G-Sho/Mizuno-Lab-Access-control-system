@@ -35,5 +35,12 @@ dist-ssr
 .env.test.local
 .env.production.local
 
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+
 # OS generated files
 Thumbs.db
+*.tmp
+*.temp
