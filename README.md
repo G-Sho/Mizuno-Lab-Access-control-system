@@ -1,11 +1,13 @@
 # 研究室入退室管理システム
 
-TypeScriptとFirebaseを使った研究室の入退室管理システムです。リアルタイム同期とSlack通知機能を備えています。
+Next.jsとFirebaseを使った研究室の入退室管理システムです。リアルタイム同期とSlack通知機能を備えています。
+
+🔗 **ライブデモ**: https://mizuno-lab-access-control.web.app
 
 ## 🚀 機能
 
 ### 認証・ユーザー管理
-- **Google OAuth認証**: Firebase Authenticationによる安全なログイン
+- **Slack OAuth認証**: Slack OAuthによる安全なログイン
 - **自動ユーザー登録**: 初回ログイン時に自動でFirestoreにユーザー情報を保存
 
 ### 入退室管理
@@ -20,27 +22,28 @@ TypeScriptとFirebaseを使った研究室の入退室管理システムです�
 - **自動通知**: 鍵の取得・返却時にSlack通知
 
 ### Slack通知
-- **自動通知**: 入退室・鍵の取得/返却時に自動でSlack投稿
+- **ユーザー本人投稿**: ユーザートークンでユーザー本人として投稿
+- **ボットフォールバック**: 投稿に失敗した場合はボットが代替投稿
 - **日本時間表示**: JST（Asia/Tokyo）での正確な時刻表示
 - **重複防止**: Cloud Functionsによる賢い通知制御
 
 ## 🛠️ 技術スタック
 
 ### フロントエンド
-- **React 18** + **TypeScript**
-- **Vite** (開発・ビルドツール)
+- **Next.js 15** + **React 18** + **TypeScript**
 - **Tailwind CSS** (スタイリング)
 - **Lucide React** (アイコンライブラリ)
+- **Static Site Generation** (SSG)
 
 ### バックエンド・インフラ
-- **Firebase Authentication** (Google OAuth)
+- **Firebase Authentication** (Slack OAuth)
 - **Cloud Firestore** (NoSQLデータベース)
 - **Cloud Functions** (Node.js 18, TypeScript)
 - **Firebase Hosting** (静的サイトホスティング)
 
 ### 開発ツール
 - **TypeScript 5.0**
-- **ESLint** (コード品質)
+- **ESLint** + **Next.js ESLint Config**
 - **PostCSS** + **Autoprefixer**
 
 ## 📋 必要な環境
@@ -48,7 +51,7 @@ TypeScriptとFirebaseを使った研究室の入退室管理システムです�
 - Node.js 18以上
 - Firebase CLI
 - Firebaseプロジェクト（Authentication, Firestore, Functions, Hosting有効）
-- Slack Workspace（通知機能を使う場合）
+- Slack App（OAuth認証と通知機能用）
 
 ## 🚦 セットアップ
 
@@ -78,20 +81,40 @@ firebase use --add
 cp .env.example .env
 ```
 
-`.env`ファイルを編集してFirebaseの設定値を入力：
+`.env`ファイルを編集してFirebaseとSlackの設定値を入力：
 ```env
-VITE_FIREBASE_API_KEY=your_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
+# Firebase設定（NextJS用）
+FIREBASE_API_KEY=your_api_key
+FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+FIREBASE_PROJECT_ID=your_project_id
+FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+FIREBASE_APP_ID=your_app_id
+
+# Slack OAuth設定
+SLACK_CLIENT_ID=your_slack_client_id
 ```
 
-### 4. Slack Webhook設定（オプション）
+### 4. Slack App設定
+**前提**: Slack Developer Console (https://api.slack.com/apps) でアプリを作成済み
+
+#### OAuth & Permissions設定
+- **Redirect URLs**: `https://your-cloud-function-url` (Firebase Functionsデプロイ後)
+- **Bot Token Scopes**:
+  - `users:read`
+  - `users:read.email`
+  - `users.profile:read`
+  - `chat:write`
+- **User Token Scopes**:
+  - `chat:write`
+
+#### Firebase Functions環境変数設定
 ```bash
-# Firebase FunctionsにSlack Webhook URLを設定
-firebase functions:config:set slack.webhook_url="YOUR_SLACK_WEBHOOK_URL"
+# Slack認証情報をFunctionsに設定
+firebase functions:config:set \
+  slack.client_id="YOUR_SLACK_CLIENT_ID" \
+  slack.client_secret="YOUR_SLACK_CLIENT_SECRET" \
+  slack.channel_id="YOUR_SLACK_CHANNEL_ID"
 ```
 
 ### 5. 開発サーバーの起動
@@ -99,7 +122,7 @@ firebase functions:config:set slack.webhook_url="YOUR_SLACK_WEBHOOK_URL"
 npm run dev
 ```
 
-ブラウザで http://localhost:5173 にアクセス
+ブラウザで http://localhost:3000 にアクセス
 
 ## 🚀 デプロイ
 
@@ -122,7 +145,7 @@ firebase deploy
 ## 💡 使い方
 
 ### 初回利用
-1. **ログイン**: 「Googleでログイン」ボタンをクリック
+1. **ログイン**: 「Slackでログイン」ボタンをクリック
 2. **自動登録**: 初回ログイン時にユーザー情報が自動登録される
 
 ### 日常的な操作
@@ -135,6 +158,10 @@ firebase deploy
 ## 📁 プロジェクト構造
 
 ```
+├── app/
+│   ├── globals.css         # グローバルCSS
+│   ├── layout.tsx          # ルートレイアウト
+│   └── page.tsx            # メインページ
 ├── src/
 │   ├── components/
 │   │   ├── auth/           # 認証関連コンポーネント
@@ -142,30 +169,35 @@ firebase deploy
 │   │   └── ui/             # UI共通コンポーネント
 │   ├── hooks/              # カスタムフック
 │   ├── firebase/           # Firebase設定・API
-│   ├── types/              # TypeScript型定義
-│   └── App.tsx             # メインアプリケーション
+│   ├── services/           # サービス層（Slack OAuth）
+│   └── types/              # TypeScript型定義
 ├── functions/
 │   └── src/
 │       └── index.ts        # Cloud Functions（Slack通知）
 ├── public/                 # 静的ファイル
+├── next.config.js          # Next.js設定
 └── firebase.json           # Firebase設定
 ```
 
 ## 🧩 主要コンポーネント
 
 ### フロントエンド
-- **App.tsx**: メインアプリケーションロジック
+- **app/page.tsx**: メインアプリケーションロジック
 - **RoomCard**: 入退室操作UI（A2218室/院生室）
 - **CurrentStatus**: 現在の在室状況表示
 - **ActivityHistory**: 入退室履歴表示
+- **LoginScreen**: Slack OAuth認証UI
+- **SlackAuthService**: Slack OAuth認証サービス
 - **useAuth**: 認証状態管理
 - **useFirestore**: Firestoreデータ管理
 - **useAttendance**: 入退室操作ロジック
 
 ### バックエンド
+- **slackOAuthCallback**: Slack OAuth認証コールバック処理
 - **onLogCreate**: ログ作成時のSlack通知トリガー
 - **onUserKeyStatusChange**: 鍵状態変更の監視
 - **sendTestMessage**: テスト用メッセージ送信（HTTPS関数）
+- **debugTest**: デバッグ用テスト関数
 - **resetData**: 開発用データリセット（HTTPS関数）
 
 ## 📊 データ構造
@@ -175,11 +207,14 @@ firebase deploy
 #### `users` (ユーザー情報)
 ```typescript
 {
-  uid: string;           // Firebase Auth UID
+  uid: string;           // Firebase Auth UID（slack_xxxxx形式）
   name: string;          // 表示名
   email: string;         // メールアドレス
   avatar?: string;       // プロフィール画像URL
-  provider: string;      // 認証プロバイダー
+  provider: string;      // 認証プロバイダー（slack）
+  slackUserId: string;   // Slack ユーザーID
+  slackTeamId: string;   // Slack チームID
+  slackUserToken: string; // Slack ユーザートークン（暗号化推奨）
   room2218: boolean;     // A2218室在室状態
   gradRoom: boolean;     // 院生室在室状態
   hasKey: boolean;       // 鍵保持状態
@@ -204,13 +239,12 @@ firebase deploy
 
 ```bash
 # 開発
-npm run dev              # 開発サーバー起動
-npm run build           # 本番ビルド
-npm run preview         # ビルド結果のプレビュー
+npm run dev              # Next.js開発サーバー起動
+npm run build           # 本番ビルド（静的サイト生成）
+npm run start           # 本番サーバー起動（未使用）
 
 # 品質管理
-npm run typecheck       # TypeScript型チェック
-npm run lint            # ESLintチェック（設定されていない）
+npm run lint            # ESLint + Next.js設定でのチェック
 
 # Firebase Functions
 cd functions
@@ -227,10 +261,11 @@ npm run deploy          # Functionsデプロイ
 - ユーザーは自分のデータのみ編集可能
 - ログは全ユーザーが読取り可能、書込みは制限
 
-### Firebase Authentication
-- Google OAuth認証のみ有効
+### Slack OAuth認証
+- Slack OAuth 2.0による安全な認証
 - セキュアなトークンベース認証
-- 自動的なセッション管理
+- セッションストレージによる状態管理
+- ポップアップベースの認証フロー
 
 ## 🔍 主な機能の実装
 
@@ -246,6 +281,8 @@ npm run deploy          # Functionsデプロイ
 
 ### Slack通知システム
 - Cloud Functions トリガーベース
+- ユーザートークンによる本人投稿機能
+- ボットトークンによるフォールバック投稿
 - 日本時間（JST）での時刻表示
 - リトライ機能付きのHTTPリクエスト
 - 重複通知防止機能
@@ -253,8 +290,10 @@ npm run deploy          # Functionsデプロイ
 ## 🚨 注意事項
 
 - 本番環境では適切なFirestoreセキュリティルールを設定してください
-- Slack Webhook URLは機密情報として適切に管理してください
+- Slack OAuth認証情報（Client ID, Client Secret）は機密情報として適切に管理してください
+- Slack ユーザートークンは暗号化してFirestoreに保存することを推奨します
 - resetData関数は開発環境でのみ使用してください
+- Next.js Static Site Generation (SSG) を使用しているため、環境変数はビルド時に埋め込まれます
 
 ## 📞 サポート
 

@@ -14,8 +14,6 @@ export const useAuth = () => {
 
   useEffect(() => {
     const handleAuthStateChange = async (user: FirebaseAuthUser | null) => {
-      console.log('Auth state changed:', user);
-
       setCurrentUser(user);
       setAuthLoading(false);
 
@@ -33,7 +31,7 @@ export const useAuth = () => {
             hasKey: false     // 新規ユーザーのみ使用される
           });
         } catch (error) {
-          console.error('Error saving user to Firestore:', error);
+          // エラーは無視（非必須処理）
         }
       }
     };
@@ -48,7 +46,6 @@ export const useAuth = () => {
     try {
       const result = await signInWithSlack();
       if (result) {
-        console.log('Slack login successful:', result);
         // 即座にユーザー状態を更新してローディング状態を解除
         setCurrentUser(result);
         setAuthLoading(false);

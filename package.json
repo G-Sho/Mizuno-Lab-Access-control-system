@@ -6,26 +6,27 @@
   "description": "研究室入退室管理システム",
   "homepage": ".",
   "dependencies": {
+    "@types/node": "^24.5.2",
+    "eslint-config-next": "^15.5.3",
     "firebase": "^12.1.0",
     "lucide-react": "^0.263.1",
+    "next": "^15.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
-    "@vitejs/plugin-react": "^4.0.3",
     "autoprefixer": "^10.4.14",
     "postcss": "^8.4.27",
     "tailwindcss": "^3.3.3",
-    "typescript": "^5.0.2",
-    "vite": "^4.4.5"
+    "typescript": "^5.0.2"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "echo \"No linting configured\"",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
     "typecheck": "tsc --noEmit"
   }
 }

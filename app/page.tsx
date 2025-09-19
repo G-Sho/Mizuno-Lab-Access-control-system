@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import {
   LoadingSpinner,
@@ -7,15 +9,15 @@ import {
   RoomCard,
   CurrentStatus,
   ActivityHistory
-} from './components';
+} from '@/components';
 import {
   useAuth,
   useFirestore,
   useAttendance,
   useCurrentTime
-} from './hooks';
+} from '@/hooks';
 
-const App: React.FC = () => {
+export default function Home() {
   const {
     currentUser,
     authLoading,
@@ -26,7 +28,7 @@ const App: React.FC = () => {
 
   const { users, logs } = useFirestore(currentUser);
   const currentTime = useCurrentTime();
-  
+
   const {
     loading,
     error,
@@ -89,6 +91,4 @@ const App: React.FC = () => {
       </div>
     </div>
   );
-};
-
-export default App;
+}
