@@ -4,12 +4,19 @@ class SlackAuthService {
   private clientId: string;
 
   constructor() {
-    this.clientId = import.meta.env.VITE_SLACK_CLIENT_ID || '';
+    this.clientId = process.env.SLACK_CLIENT_ID || '';
   }
 
   // Slack OAuth認証を開始（ポップアップウィンドウ）
   signInWithPopup(): Promise<FirebaseAuthUser> {
     return new Promise((resolve, reject) => {
+      // 既存のセッションストレージをチェック
+      const existingUser = this.getStoredSlackUser();
+      if (existingUser) {
+        resolve(existingUser);
+        return;
+      }
+
       const authUrl = this.getAuthUrl();
       const popup = window.open(
         authUrl,
@@ -22,31 +29,34 @@ class SlackAuthService {
         return;
       }
 
+      let authCompleted = false;
       let checkClosed: NodeJS.Timeout;
+      let timeoutHandler: NodeJS.Timeout;
+
+      const cleanup = () => {
+        if (checkClosed) clearInterval(checkClosed);
+        if (timeoutHandler) clearTimeout(timeoutHandler);
+        window.removeEventListener('message', messageListener);
+        authCompleted = true;
+      };
 
       // ポップアップからのメッセージを監視
       const messageListener = (event: MessageEvent) => {
         // セキュリティ：Firebase Functionsからのメッセージのみ受信
         if (event.origin !== 'https://slackoauthcallback-ili5e72mnq-uc.a.run.app') {
-          console.log('Ignoring message from origin:', event.origin);
           return;
         }
 
-        console.log('Received message from Firebase Functions:', event.data);
-
         if (event.data.type === 'SLACK_AUTH_SUCCESS') {
-          clearInterval(checkClosed);
-          window.removeEventListener('message', messageListener);
+          cleanup();
           popup.close();
           const user = event.data.user;
 
           // セッションストレージに保存
           sessionStorage.setItem('slackAuthUser', JSON.stringify(user));
-          console.log('Auth success - user saved to session:', user);
           resolve(user);
         } else if (event.data.type === 'SLACK_AUTH_ERROR') {
-          clearInterval(checkClosed);
-          window.removeEventListener('message', messageListener);
+          cleanup();
           popup.close();
           reject(new Error(event.data.error));
         }
@@ -54,14 +64,38 @@ class SlackAuthService {
 
       window.addEventListener('message', messageListener);
 
-      // ポップアップが閉じられた場合の処理
-      checkClosed = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(checkClosed);
-          window.removeEventListener('message', messageListener);
-          reject(new Error('認証がキャンセルされました。'));
+      // 30秒のタイムアウト設定
+      timeoutHandler = setTimeout(() => {
+        if (!authCompleted) {
+          cleanup();
+          popup.close();
+
+          // 最終確認としてセッションストレージをチェック
+          const finalUser = this.getStoredSlackUser();
+          if (finalUser) {
+            resolve(finalUser);
+          } else {
+            reject(new Error('認証がタイムアウトしました。再度お試しください。'));
+          }
         }
-      }, 1000);
+      }, 30000);
+
+      // ポップアップが閉じられた場合の処理（短い間隔でチェック）
+      checkClosed = setInterval(() => {
+        if (popup.closed && !authCompleted) {
+          cleanup();
+
+          // 少し待ってからセッションストレージを確認
+          setTimeout(() => {
+            const storedUser = this.getStoredSlackUser();
+            if (storedUser) {
+              resolve(storedUser);
+            } else {
+              reject(new Error('認証ウィンドウが閉じられました。再度お試しください。'));
+            }
+          }, 500);
+        }
+      }, 500);
     });
   }
 
