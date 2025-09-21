@@ -38,7 +38,10 @@ function encryptSlackToken(token: string): string {
   }
 
   const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipher(ALGORITHM, ENCRYPTION_KEY);
+  const cipher = crypto.createCipherGCM('aes-256-gcm', Buffer.from(ENCRYPTION_KEY, 'hex'));
+
+  cipher.setIVLength(16);
+  cipher.setAAD(Buffer.from('slack-token'));
 
   let encrypted = cipher.update(token, 'utf8', 'hex');
   encrypted += cipher.final('hex');
@@ -63,7 +66,9 @@ function decryptSlackToken(encryptedToken: string): string {
   const authTag = Buffer.from(parts[1], 'hex');
   const encrypted = parts[2];
 
-  const decipher = crypto.createDecipher(ALGORITHM, ENCRYPTION_KEY);
+  const decipher = crypto.createDecipherGCM('aes-256-gcm', Buffer.from(ENCRYPTION_KEY, 'hex'));
+  decipher.setIVLength(16);
+  decipher.setAAD(Buffer.from('slack-token'));
   decipher.setAuthTag(authTag);
 
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
