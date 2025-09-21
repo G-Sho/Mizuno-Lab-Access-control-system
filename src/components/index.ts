@@ -2,6 +2,7 @@
 export { LoadingSpinner } from './ui/LoadingSpinner';
 export { ErrorAlert } from './ui/ErrorAlert';
 export { Header } from './ui/Header';
+export { CustomIcon } from './ui/CustomIcon';
 
 // Auth Components
 export { LoginScreen } from './auth/LoginScreen';
