@@ -5,6 +5,7 @@ import {
   addLog
 } from '../firebase/firestore';
 import { FirebaseAuthUser, FirestoreUser, RoomType } from '../types';
+import { logger } from '../utils/logger';
 
 export const useAttendance = (
   currentUser: FirebaseAuthUser | null,
@@ -15,17 +16,13 @@ export const useAttendance = (
 
   const handleRoomToggle = async (roomType: RoomType) => {
     if (!currentUser) {
-      console.error('No current user found');
+      logger.error('No current user found');
       return;
     }
 
-    console.log('handleRoomToggle called:', {
+    logger.debug('handleRoomToggle called:', {
       roomType,
-      currentUser: {
-        uid: currentUser.uid,
-        name: currentUser.name,
-        email: currentUser.email
-      }
+      uid: currentUser.uid
     });
 
     setLoading(true);
@@ -34,8 +31,7 @@ export const useAttendance = (
       const currentUserData = users.find(u => u.uid === currentUser.uid);
       const isEntering = !currentUserData?.[roomType];
 
-      console.log('Current user data:', currentUserData);
-      console.log('Is entering:', isEntering);
+      logger.debug('Current user data exists:', !!currentUserData, 'Is entering:', isEntering);
 
       await updateUserRoomStatus(currentUser.uid, roomType, isEntering);
 
@@ -47,7 +43,7 @@ export const useAttendance = (
       });
 
     } catch (error: any) {
-      console.error('Error in handleRoomToggle:', error);
+      logger.error('Error in handleRoomToggle:', error instanceof Error ? error.message : String(error));
       setError(error.message);
     } finally {
       setLoading(false);

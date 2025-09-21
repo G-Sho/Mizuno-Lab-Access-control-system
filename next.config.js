@@ -1,4 +1,4 @@
-import { InjectManifest } from 'workbox-webpack-plugin';
+import withPWA from 'next-pwa';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -17,19 +17,14 @@ const nextConfig = {
     NEXT_PUBLIC_FIREBASE_APP_ID: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
     NEXT_PUBLIC_SLACK_CLIENT_ID: process.env.NEXT_PUBLIC_SLACK_CLIENT_ID,
   },
-  webpack: (config, { dev, isServer }) => {
-    if (!dev && !isServer) {
-      config.plugins.push(
-        new InjectManifest({
-          swSrc: './public/sw.js',
-          swDest: '../out/sw.js',
-          exclude: [/\.map$/, /manifest$/, /\.htaccess$/],
-          maximumFileSizeToCacheInBytes: 5000000,
-        })
-      );
-    }
-    return config;
-  },
 }
 
-export default nextConfig
+const pwaConfig = withPWA({
+  dest: 'public',
+  register: true,
+  skipWaiting: true,
+  disable: false, // Enable in development for testing
+  // Minimal configuration for static export
+});
+
+export default pwaConfig(nextConfig);
