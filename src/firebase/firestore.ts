@@ -15,6 +15,13 @@ import {
 import { db } from './config';
 
 import { FirestoreUser, FirestoreLogEntry, AttendanceLog } from '../types';
+import {
+  handleFirestoreError,
+  withErrorHandling,
+  Result,
+  logError
+} from '../utils/errorHandler';
+import { logger } from '../utils/logger';
 
 // コレクション参照
 const usersCollection = collection(db, 'users');
@@ -46,12 +53,9 @@ export const saveUser = async (user: Omit<FirestoreUser, 'createdAt' | 'lastActi
       });
     }
   } catch (error) {
-    console.error('Error saving user:', error);
-    // Permission denied エラーを特定してユーザーに分かりやすいメッセージを表示
-    if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
-      throw new Error('データベースへのアクセス権限がありません。認証を確認してください。');
-    }
-    throw new Error('ユーザー情報の保存に失敗しました');
+    const firestoreError = handleFirestoreError(error);
+    logError(firestoreError, 'saveUser');
+    throw firestoreError;
   }
 };
 
@@ -64,8 +68,9 @@ export const getAllUsers = async (): Promise<FirestoreUser[]> => {
       ...doc.data()
     } as FirestoreUser));
   } catch (error) {
-    console.error('Error getting users:', error);
-    throw new Error('ユーザー一覧の取得に失敗しました');
+    const firestoreError = handleFirestoreError(error);
+    logError(firestoreError, 'getAllUsers');
+    throw firestoreError;
   }
 };
 
@@ -75,25 +80,22 @@ export const updateUserRoomStatus = async (
   status: boolean
 ): Promise<void> => {
   try {
-    console.log('Updating room status for UID:', uid, 'Room:', roomType, 'Status:', status);
+    logger.debug('Updating room status for UID:', uid, 'Room:', roomType, 'Status:', status);
     const userRef = doc(usersCollection, uid);
     await updateDoc(userRef, {
       [roomType]: status,
       lastActivity: serverTimestamp()
     });
   } catch (error) {
-    console.error('Error updating room status:', error);
-    console.error('Error details:', {
+    logger.error('Error updating room status:', error instanceof Error ? error.message : String(error));
+    logger.debug('Error details:', {
       uid,
       roomType,
-      status,
-      error
+      status
     });
-    // Permission denied エラーを特定してユーザーに分かりやすいメッセージを表示
-    if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
-      throw new Error('データベースへのアクセス権限がありません。認証を確認してください。');
-    }
-    throw new Error('入退室状況の更新に失敗しました');
+    const firestoreError = handleFirestoreError(error);
+    logError(firestoreError, 'updateUserRoomStatus');
+    throw firestoreError;
   }
 };
 
@@ -118,8 +120,9 @@ export const updateUserKeyStatus = async (uid: string, hasKey: boolean): Promise
       lastActivity: serverTimestamp()
     });
   } catch (error) {
-    console.error('Error updating key status:', error);
-    throw new Error('鍵状況の更新に失敗しました');
+    const firestoreError = handleFirestoreError(error);
+    logError(firestoreError, 'updateUserKeyStatus');
+    throw firestoreError;
   }
 };
 
@@ -131,8 +134,9 @@ export const addLog = async (log: AttendanceLog): Promise<void> => {
       timestamp: serverTimestamp()
     });
   } catch (error) {
-    console.error('Error adding log:', error);
-    throw new Error('ログの追加に失敗しました');
+    const firestoreError = handleFirestoreError(error);
+    logError(firestoreError, 'addLog');
+    throw firestoreError;
   }
 };
 
@@ -146,7 +150,7 @@ export const subscribeToUsers = (callback: (users: FirestoreUser[]) => void) => 
     } as FirestoreUser));
     callback(users);
   }, (error) => {
-    console.error('Error in users subscription:', error);
+    logger.error('Error in users subscription:', error instanceof Error ? error.message : String(error));
     // エラーが発生した場合は空の配列を返す
     callback([]);
   });
@@ -162,7 +166,7 @@ export const subscribeToLogs = (callback: (logs: FirestoreLogEntry[]) => void) =
     } as FirestoreLogEntry));
     callback(logs);
   }, (error) => {
-    console.error('Error in logs subscription:', error);
+    logger.error('Error in logs subscription:', error instanceof Error ? error.message : String(error));
     // エラーが発生した場合は空の配列を返す
     callback([]);
   });

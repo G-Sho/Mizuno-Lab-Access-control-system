@@ -1,12 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetData = exports.debugTest = exports.sendTestMessage = exports.slackOAuthCallback = exports.onUserKeyStatusChange = exports.onLogCreate = void 0;
+exports.resetData = exports.generateState = exports.debugTest = exports.sendTestMessage = exports.slackOAuthCallback = exports.onUserKeyStatusChange = exports.onLogCreate = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const v2_1 = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const node_fetch_1 = require("node-fetch");
 const dotenv = require("dotenv");
+const crypto = require("crypto");
+const oauthHelpers_1 = require("./oauthHelpers");
+const logger_1 = require("./utils/logger");
 // Global options for v2 functions
 (0, v2_1.setGlobalOptions)({
     region: "us-central1",
@@ -24,6 +27,95 @@ const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 const SLACK_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
 const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID;
 const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET;
+// 暗号化設定
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY; // 32バイトのキー
+const ALGORITHM = 'aes-256-gcm';
+// OAuth state検証用の設定
+const STATE_SECRET = process.env.STATE_SECRET || ENCRYPTION_KEY; // state検証用の秘密鍵
+const STATE_EXPIRY_MINUTES = 10; // stateの有効期限（分）
+// Slackトークン暗号化・復号化関数
+function encryptSlackToken(token) {
+    if (!ENCRYPTION_KEY) {
+        throw new Error('ENCRYPTION_KEY環境変数が設定されていません');
+    }
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
+    // AAD（Additional Authenticated Data）を設定してコンテキストを認証
+    const aad = Buffer.from('slack-token');
+    cipher.setAAD(aad);
+    let encrypted = cipher.update(token, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag();
+    // AAD + IV + authTag + encryptedDataを結合して返す
+    return aad.toString('hex') + ':' + iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;
+}
+function decryptSlackToken(encryptedToken) {
+    if (!ENCRYPTION_KEY) {
+        throw new Error('ENCRYPTION_KEY環境変数が設定されていません');
+    }
+    const parts = encryptedToken.split(':');
+    if (parts.length !== 4) {
+        throw new Error('不正な暗号化データ形式');
+    }
+    const aad = Buffer.from(parts[0], 'hex');
+    const iv = Buffer.from(parts[1], 'hex');
+    const authTag = Buffer.from(parts[2], 'hex');
+    const encrypted = parts[3];
+    // AADの検証
+    if (aad.toString() !== 'slack-token') {
+        throw new Error('不正なAAD: データの整合性が確認できません');
+    }
+    const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
+    decipher.setAAD(aad);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+}
+// OAuth state検証関数
+function generateOAuthState() {
+    if (!STATE_SECRET) {
+        throw new Error('STATE_SECRET環境変数が設定されていません');
+    }
+    const timestamp = Math.floor(Date.now() / 1000);
+    const randomValue = crypto.randomBytes(16).toString('hex');
+    const payload = JSON.stringify({ timestamp, randomValue });
+    // HMAC-SHA256でデジタル署名を作成
+    const hmac = crypto.createHmac('sha256', STATE_SECRET);
+    hmac.update(payload);
+    const signature = hmac.digest('hex');
+    // Base64エンコードして返す
+    return Buffer.from(`${payload}.${signature}`).toString('base64');
+}
+function validateOAuthState(state) {
+    if (!STATE_SECRET) {
+        throw new Error('STATE_SECRET環境変数が設定されていません');
+    }
+    try {
+        // Base64デコード
+        const decoded = Buffer.from(state, 'base64').toString();
+        const [payload, expectedSignature] = decoded.split('.');
+        if (!payload || !expectedSignature) {
+            return false;
+        }
+        // 署名検証
+        const hmac = crypto.createHmac('sha256', STATE_SECRET);
+        hmac.update(payload);
+        const actualSignature = hmac.digest('hex');
+        if (actualSignature !== expectedSignature) {
+            return false;
+        }
+        // タイムスタンプ検証
+        const data = JSON.parse(payload);
+        const currentTime = Math.floor(Date.now() / 1000);
+        const stateAge = currentTime - data.timestamp;
+        const maxAge = STATE_EXPIRY_MINUTES * 60; // 秒に変換
+        return stateAge <= maxAge;
+    }
+    catch (error) {
+        return false;
+    }
+}
 // 定数
 const JST_OFFSET = 9 * 60 * 60 * 1000; // 日本時間オフセット（9時間）
 const ACTION_MAP = {
@@ -258,7 +350,7 @@ exports.onLogCreate = (0, firestore_1.onDocumentCreated)("logs/{logId}", async (
                 const userDoc = await db.collection('users').doc(userId).get();
                 userData = userDoc.data();
                 userAvatar = userData === null || userData === void 0 ? void 0 : userData.avatar;
-                userToken = userData === null || userData === void 0 ? void 0 : userData.slackUserToken;
+                userToken = (userData === null || userData === void 0 ? void 0 : userData.slackUserToken) ? decryptSlackToken(userData.slackUserToken) : undefined;
                 // デバッグログ追加
                 console.log(`DEBUG: userId=${userId}`);
                 console.log(`DEBUG: userData exists=${!!userData}`);
@@ -340,7 +432,7 @@ exports.onUserKeyStatusChange = (0, firestore_1.onDocumentUpdated)("users/{userI
         const userName = afterData.name;
         const action = afterData.hasKey ? "鍵取得" : "鍵返却";
         const userAvatar = afterData.avatar;
-        const userToken = afterData.slackUserToken;
+        const userToken = afterData.slackUserToken ? decryptSlackToken(afterData.slackUserToken) : undefined;
         // 重複通知防止：5秒以内の同一ログをチェック
         const fiveSecondsAgo = new Date(Date.now() - 5000);
         const userId = event.params.userId;
@@ -421,6 +513,34 @@ exports.slackOAuthCallback = (0, https_1.onRequest)(async (req, res) => {
       `);
             return;
         }
+        // CSRF保護: stateパラメータの存在確認
+        if (!state || typeof state !== 'string') {
+            console.error('Missing or invalid state parameter:', state);
+            res.status(400).send(`
+        <html>
+          <body>
+            <h1>Authentication Error</h1>
+            <p>Invalid request. Please try logging in again.</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({
+                  type: 'SLACK_AUTH_ERROR',
+                  error: 'Invalid state parameter'
+                }, '*');
+                window.close();
+              }
+            </script>
+          </body>
+        </html>
+      `);
+            return;
+        }
+        // stateパラメータの暗号学的検証
+        if (!validateOAuthState(state)) {
+            logger_1.functionsLogger.error('OAuth state validation failed - potential CSRF attack');
+            res.status(400).send((0, oauthHelpers_1.generateErrorResponseHTML)('Invalid or expired authentication request'));
+            return;
+        }
         // Slack OAuth token exchange
         console.log('=== OAUTH DEBUG START ===');
         console.log('Starting Slack OAuth token exchange with code:', code);
@@ -498,8 +618,8 @@ exports.slackOAuthCallback = (0, https_1.onRequest)(async (req, res) => {
         console.log('DEBUG: Saving user to Firestore with userAccessToken=', !!userAccessToken);
         console.log('DEBUG: userAccessToken length=', userAccessToken ? userAccessToken.length : 0);
         await db.collection('users').doc(firebaseUser.uid).set(Object.assign(Object.assign({}, firebaseUser), { lastActivity: admin.firestore.FieldValue.serverTimestamp(), createdAt: admin.firestore.FieldValue.serverTimestamp(), room2218: false, gradRoom: false, hasKey: false, 
-            // ユーザートークンを暗号化して保存（実装では適切な暗号化を使用）
-            slackUserToken: userAccessToken }), { merge: true });
+            // ユーザートークンを暗号化して保存
+            slackUserToken: encryptSlackToken(userAccessToken) }), { merge: true });
         console.log('DEBUG: User saved to Firestore successfully');
         // 保存確認のため再読み込み
         const savedUser = await db.collection('users').doc(firebaseUser.uid).get();
@@ -531,7 +651,8 @@ exports.slackOAuthCallback = (0, https_1.onRequest)(async (req, res) => {
                 if (window.opener) {
                   window.opener.postMessage({
                     type: 'SLACK_AUTH_SUCCESS',
-                    user: userData
+                    user: userData,
+                    state: '${state}'
                   }, origin);
                   console.log('Message sent to origin:', origin);
                 }
@@ -714,6 +835,34 @@ exports.debugTest = (0, https_1.onRequest)(async (req, res) => {
     catch (error) {
         console.error('Debug test error:', error);
         res.status(500).json({ error: error.message });
+    }
+});
+/**
+ * OAuth state生成エンドポイント
+ */
+exports.generateState = (0, https_1.onRequest)(async (req, res) => {
+    try {
+        // CORS ヘッダーを設定
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.set('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') {
+            res.status(200).end();
+            return;
+        }
+        const state = generateOAuthState();
+        res.json({
+            success: true,
+            state: state,
+            expiresIn: STATE_EXPIRY_MINUTES * 60 // 秒単位
+        });
+    }
+    catch (error) {
+        logger_1.functionsLogger.error('Error generating OAuth state:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to generate OAuth state'
+        });
     }
 });
 /**

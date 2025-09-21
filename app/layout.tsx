@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ServiceWorkerRegistration from '../src/components/ServiceWorkerRegistration'
+import PWARegistration from '../src/components/PWARegistration'
 
 export const metadata: Metadata = {
   title: '研究室入退室管理システム',
@@ -41,6 +42,7 @@ export default function RootLayout({
       <body>
         {children}
         <ServiceWorkerRegistration />
+        <PWARegistration />
       </body>
     </html>
   )

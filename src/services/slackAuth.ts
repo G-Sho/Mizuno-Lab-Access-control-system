@@ -1,4 +1,5 @@
 import { FirebaseAuthUser } from '../types';
+import { logger } from '../utils/logger';
 
 class SlackAuthService {
   private clientId: string;
@@ -8,10 +9,33 @@ class SlackAuthService {
   }
 
   // セキュアなランダムstate生成
-  private generateState(): string {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  private async generateState(): Promise<string> {
+    try {
+      // 新しいサーバー側state生成APIを使用
+      const response = await fetch('https://generatestate-ili5e72mnq-uc.a.run.app', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`State generation failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.success || !data.state) {
+        throw new Error('Invalid state response from server');
+      }
+
+      return data.state;
+    } catch (error) {
+      // フォールバック: クライアント側で生成（互換性のため）
+      console.warn('Failed to generate server-side state, using fallback:', error);
+      const array = new Uint8Array(32);
+      crypto.getRandomValues(array);
+      return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+    }
   }
 
   // stateの保存と検証
@@ -46,8 +70,8 @@ class SlackAuthService {
   }
 
   // Slack OAuth認証を開始（ポップアップウィンドウ）
-  signInWithPopup(): Promise<FirebaseAuthUser> {
-    return new Promise((resolve, reject) => {
+  async signInWithPopup(): Promise<FirebaseAuthUser> {
+    return new Promise(async (resolve, reject) => {
       // 既存のセッションストレージをチェック
       const existingUser = this.getStoredSlackUser();
       if (existingUser) {
@@ -55,100 +79,112 @@ class SlackAuthService {
         return;
       }
 
-      // CSRF保護のためのstateパラメータ生成と保存
-      const state = this.generateState();
-      this.storeState(state);
+        try {
+          // CSRF保護のためのstateパラメータ生成と保存
+          const state = await this.generateState();
+          this.storeState(state);
 
-      const authUrl = this.getAuthUrl(state);
-      const popup = window.open(
-        authUrl,
-        'SlackAuth',
-        'width=600,height=600,scrollbars=yes,resizable=yes'
-      );
+          const authUrl = this.getAuthUrl(state);
+          const popup = window.open(
+            authUrl,
+            'SlackAuth',
+            'width=600,height=600,scrollbars=yes,resizable=yes'
+          );
 
-      if (!popup) {
-        reject(new Error('ポップアップがブロックされました。ブラウザの設定を確認してください。'));
-        return;
-      }
-
-      let authCompleted = false;
-      let checkClosed: NodeJS.Timeout;
-      let timeoutHandler: NodeJS.Timeout;
-
-      const cleanup = () => {
-        if (checkClosed) clearInterval(checkClosed);
-        if (timeoutHandler) clearTimeout(timeoutHandler);
-        window.removeEventListener('message', messageListener);
-        authCompleted = true;
-      };
-
-      // ポップアップからのメッセージを監視
-      const messageListener = (event: MessageEvent) => {
-        // セキュリティ：Firebase Functionsからのメッセージのみ受信
-        if (event.origin !== 'https://slackoauthcallback-ili5e72mnq-uc.a.run.app') {
-          return;
-        }
-
-        if (event.data.type === 'SLACK_AUTH_SUCCESS') {
-          // stateパラメータを検証してCSRF攻撃を防ぐ
-          if (!event.data.state || !this.validateState(event.data.state)) {
-            cleanup();
-            popup.close();
-            this.clearState();
-            reject(new Error('認証エラー: 不正なリクエストです。'));
+          if (!popup) {
+            reject(new Error('ポップアップがブロックされました。ブラウザの設定を確認してください。'));
             return;
           }
 
-          cleanup();
-          popup.close();
-          this.clearState();
-          const user = event.data.user;
+          let authCompleted = false;
+          let checkClosed: NodeJS.Timeout;
+          let timeoutHandler: NodeJS.Timeout;
 
-          // セッションストレージに保存
-          sessionStorage.setItem('slackAuthUser', JSON.stringify(user));
-          resolve(user);
-        } else if (event.data.type === 'SLACK_AUTH_ERROR') {
-          cleanup();
-          popup.close();
-          this.clearState();
-          reject(new Error(event.data.error));
-        }
-      };
+          const cleanup = () => {
+            if (checkClosed) clearInterval(checkClosed);
+            if (timeoutHandler) clearTimeout(timeoutHandler);
+            window.removeEventListener('message', messageListener);
+            authCompleted = true;
+          };
 
-      window.addEventListener('message', messageListener);
+          // ポップアップからのメッセージを監視
+          const messageListener = (event: MessageEvent) => {
+            // セキュリティ：Firebase Functionsからのメッセージのみ受信
+            if (event.origin !== 'https://slackoauthcallback-ili5e72mnq-uc.a.run.app') {
+              return;
+            }
 
-      // 30秒のタイムアウト設定
-      timeoutHandler = setTimeout(() => {
-        if (!authCompleted) {
-          cleanup();
-          popup.close();
+            if (event.data.type === 'SLACK_AUTH_SUCCESS') {
+              // stateパラメータを検証してCSRF攻撃を防ぐ
+              if (!event.data.state || !this.validateState(event.data.state)) {
+                cleanup();
+                popup.close();
+                this.clearState();
+                reject(new Error('認証エラー: 不正なリクエストです。'));
+                return;
+              }
 
-          // 最終確認としてセッションストレージをチェック
-          const finalUser = this.getStoredSlackUser();
-          if (finalUser) {
-            resolve(finalUser);
-          } else {
-            reject(new Error('認証がタイムアウトしました。再度お試しください。'));
-          }
-        }
-      }, 30000);
+              cleanup();
+              popup.close();
+              this.clearState();
+              const user = event.data.user;
+              const customToken = event.data.customToken;
 
-      // ポップアップが閉じられた場合の処理（短い間隔でチェック）
-      checkClosed = setInterval(() => {
-        if (popup.closed && !authCompleted) {
-          cleanup();
+              logger.debug('Received custom token:', !!customToken);
 
-          // 少し待ってからセッションストレージを確認
-          setTimeout(() => {
-            const storedUser = this.getStoredSlackUser();
-            if (storedUser) {
-              resolve(storedUser);
-            } else {
-              reject(new Error('認証ウィンドウが閉じられました。再度お試しください。'));
+              // Custom Tokenが含まれている場合は保存
+              if (customToken) {
+                sessionStorage.setItem('firebaseCustomToken', customToken);
+              }
+
+              // セッションストレージに保存
+              sessionStorage.setItem('slackAuthUser', JSON.stringify(user));
+              resolve(user);
+            } else if (event.data.type === 'SLACK_AUTH_ERROR') {
+              cleanup();
+              popup.close();
+              this.clearState();
+              reject(new Error(event.data.error));
+            }
+          };
+
+          window.addEventListener('message', messageListener);
+
+          // 30秒のタイムアウト設定
+          timeoutHandler = setTimeout(() => {
+            if (!authCompleted) {
+              cleanup();
+              popup.close();
+
+              // 最終確認としてセッションストレージをチェック
+              const finalUser = this.getStoredSlackUser();
+              if (finalUser) {
+                resolve(finalUser);
+              } else {
+                reject(new Error('認証がタイムアウトしました。再度お試しください。'));
+              }
+            }
+          }, 30000);
+
+          // ポップアップが閉じられた場合の処理（短い間隔でチェック）
+          checkClosed = setInterval(() => {
+            if (popup.closed && !authCompleted) {
+              cleanup();
+
+              // 少し待ってからセッションストレージを確認
+              setTimeout(() => {
+                const storedUser = this.getStoredSlackUser();
+                if (storedUser) {
+                  resolve(storedUser);
+                } else {
+                  reject(new Error('認証ウィンドウが閉じられました。再度お試しください。'));
+                }
+              }, 500);
             }
           }, 500);
+        } catch (error) {
+          reject(new Error(`認証の初期化に失敗しました: ${error}`));
         }
-      }, 500);
     });
   }
 
@@ -176,9 +212,19 @@ class SlackAuthService {
     }
   }
 
+  // Custom Tokenを取得
+  getStoredCustomToken(): string | null {
+    try {
+      return sessionStorage.getItem('firebaseCustomToken');
+    } catch {
+      return null;
+    }
+  }
+
   // ログアウト
   signOut(): void {
     sessionStorage.removeItem('slackAuthUser');
+    sessionStorage.removeItem('firebaseCustomToken');
     this.clearState(); // OAuth state もクリア
   }
 }
