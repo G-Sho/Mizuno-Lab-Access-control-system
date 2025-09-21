@@ -104,12 +104,6 @@ firebase deploy
 - ワークスペース限定アクセス
 - トークン暗号化推奨
 
-## 📝 主要なコミット
-
-- **Next.js移行** - Create React AppからNext.js 15へ
-- **PWA化(アプリ対応)** - Service Worker + Workbox実装
-- **リファクタリング** - 定数管理・共通コンポーネント化
-
 ---
 
 💡 **問題・要望**: [Issues](https://github.com/G-Sho/Mizuno-Lab-Access-control-system/issues)で報告
