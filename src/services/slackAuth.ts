@@ -4,7 +4,45 @@ class SlackAuthService {
   private clientId: string;
 
   constructor() {
-    this.clientId = process.env.SLACK_CLIENT_ID || '';
+    this.clientId = process.env.NEXT_PUBLIC_SLACK_CLIENT_ID || '';
+  }
+
+  // セキュアなランダムstate生成
+  private generateState(): string {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  // stateの保存と検証
+  private storeState(state: string): void {
+    sessionStorage.setItem('oauth_state', state);
+    sessionStorage.setItem('oauth_state_timestamp', Date.now().toString());
+  }
+
+  private validateState(state: string): boolean {
+    const storedState = sessionStorage.getItem('oauth_state');
+    const timestamp = sessionStorage.getItem('oauth_state_timestamp');
+
+    // stateが一致し、10分以内に作成されたものか確認
+    if (!storedState || !timestamp || storedState !== state) {
+      return false;
+    }
+
+    const stateAge = Date.now() - parseInt(timestamp);
+    const maxAge = 10 * 60 * 1000; // 10分
+
+    if (stateAge > maxAge) {
+      this.clearState();
+      return false;
+    }
+
+    return true;
+  }
+
+  private clearState(): void {
+    sessionStorage.removeItem('oauth_state');
+    sessionStorage.removeItem('oauth_state_timestamp');
   }
 
   // Slack OAuth認証を開始（ポップアップウィンドウ）
@@ -17,7 +55,11 @@ class SlackAuthService {
         return;
       }
 
-      const authUrl = this.getAuthUrl();
+      // CSRF保護のためのstateパラメータ生成と保存
+      const state = this.generateState();
+      this.storeState(state);
+
+      const authUrl = this.getAuthUrl(state);
       const popup = window.open(
         authUrl,
         'SlackAuth',
@@ -48,8 +90,18 @@ class SlackAuthService {
         }
 
         if (event.data.type === 'SLACK_AUTH_SUCCESS') {
+          // stateパラメータを検証してCSRF攻撃を防ぐ
+          if (!event.data.state || !this.validateState(event.data.state)) {
+            cleanup();
+            popup.close();
+            this.clearState();
+            reject(new Error('認証エラー: 不正なリクエストです。'));
+            return;
+          }
+
           cleanup();
           popup.close();
+          this.clearState();
           const user = event.data.user;
 
           // セッションストレージに保存
@@ -58,6 +110,7 @@ class SlackAuthService {
         } else if (event.data.type === 'SLACK_AUTH_ERROR') {
           cleanup();
           popup.close();
+          this.clearState();
           reject(new Error(event.data.error));
         }
       };
@@ -99,14 +152,15 @@ class SlackAuthService {
     });
   }
 
-  // Slack OAuth URLを生成
-  private getAuthUrl(): string {
+  // Slack OAuth URLを生成（stateパラメータ付き）
+  private getAuthUrl(state: string): string {
     const params = new URLSearchParams({
       client_id: this.clientId,
       scope: 'users:read,users:read.email,users.profile:read,chat:write',
       redirect_uri: 'https://slackoauthcallback-ili5e72mnq-uc.a.run.app',
       response_type: 'code',
       user_scope: 'chat:write',
+      state: state, // CSRF保護のためのstateパラメータ
     });
 
     return `https://slack.com/oauth/v2/authorize?${params.toString()}`;
@@ -125,6 +179,7 @@ class SlackAuthService {
   // ログアウト
   signOut(): void {
     sessionStorage.removeItem('slackAuthUser');
+    this.clearState(); // OAuth state もクリア
   }
 }
 
