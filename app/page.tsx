@@ -16,6 +16,7 @@ import {
   useAttendance,
   useCurrentTime
 } from '@/hooks';
+import { MESSAGES, STYLE_CLASSES, ROOM_TYPES } from '@/constants';
 
 export default function Home() {
   const {
@@ -37,7 +38,7 @@ export default function Home() {
   } = useAttendance(currentUser, users);
 
   if (authLoading) {
-    return <LoadingSpinner message="認証処理中..." />;
+    return <LoadingSpinner message={MESSAGES.AUTH.LOADING} />;
   }
 
   if (!currentUser) {
@@ -53,7 +54,7 @@ export default function Home() {
   const currentUserData = users.find(u => u.uid === currentUser.uid);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className={`${STYLE_CLASSES.GRADIENT_BG} p-4`}>
       <div className="max-w-4xl mx-auto">
         <Header
           currentUser={currentUser}
@@ -68,7 +69,7 @@ export default function Home() {
         {/* 操作パネル */}
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           <RoomCard
-            roomType="room2218"
+            roomType={ROOM_TYPES.ROOM_2218}
             currentUserData={currentUserData}
             onRoomToggle={handleRoomToggle}
             onKeyToggle={handleKeyToggle}
@@ -76,7 +77,7 @@ export default function Home() {
           />
 
           <RoomCard
-            roomType="gradRoom"
+            roomType={ROOM_TYPES.GRAD_ROOM}
             currentUserData={currentUserData}
             onRoomToggle={handleRoomToggle}
             loading={loading}
