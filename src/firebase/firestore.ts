@@ -47,6 +47,10 @@ export const saveUser = async (user: Omit<FirestoreUser, 'createdAt' | 'lastActi
     }
   } catch (error) {
     console.error('Error saving user:', error);
+    // Permission denied エラーを特定してユーザーに分かりやすいメッセージを表示
+    if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
+      throw new Error('データベースへのアクセス権限がありません。認証を確認してください。');
+    }
     throw new Error('ユーザー情報の保存に失敗しました');
   }
 };
@@ -66,11 +70,12 @@ export const getAllUsers = async (): Promise<FirestoreUser[]> => {
 };
 
 export const updateUserRoomStatus = async (
-  uid: string, 
-  roomType: 'room2218' | 'gradRoom', 
+  uid: string,
+  roomType: 'room2218' | 'gradRoom',
   status: boolean
 ): Promise<void> => {
   try {
+    console.log('Updating room status for UID:', uid, 'Room:', roomType, 'Status:', status);
     const userRef = doc(usersCollection, uid);
     await updateDoc(userRef, {
       [roomType]: status,
@@ -78,6 +83,16 @@ export const updateUserRoomStatus = async (
     });
   } catch (error) {
     console.error('Error updating room status:', error);
+    console.error('Error details:', {
+      uid,
+      roomType,
+      status,
+      error
+    });
+    // Permission denied エラーを特定してユーザーに分かりやすいメッセージを表示
+    if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
+      throw new Error('データベースへのアクセス権限がありません。認証を確認してください。');
+    }
     throw new Error('入退室状況の更新に失敗しました');
   }
 };
@@ -132,12 +147,14 @@ export const subscribeToUsers = (callback: (users: FirestoreUser[]) => void) => 
     callback(users);
   }, (error) => {
     console.error('Error in users subscription:', error);
+    // エラーが発生した場合は空の配列を返す
+    callback([]);
   });
 };
 
 export const subscribeToLogs = (callback: (logs: FirestoreLogEntry[]) => void) => {
   const q = query(logsCollection, orderBy('timestamp', 'desc'), limit(50));
-  
+
   return onSnapshot(q, (snapshot) => {
     const logs: FirestoreLogEntry[] = snapshot.docs.map(doc => ({
       id: doc.id,
@@ -146,6 +163,8 @@ export const subscribeToLogs = (callback: (logs: FirestoreLogEntry[]) => void) =
     callback(logs);
   }, (error) => {
     console.error('Error in logs subscription:', error);
+    // エラーが発生した場合は空の配列を返す
+    callback([]);
   });
 };
 

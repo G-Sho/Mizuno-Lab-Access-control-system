@@ -1,5 +1,8 @@
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
-import { clientsClaim } from 'workbox-core';
+// Import Workbox using importScripts for service worker compatibility
+importScripts('https://storage.googleapis.com/workbox-cdn/releases/7.0.0/workbox-sw.js');
+
+const { precacheAndRoute, cleanupOutdatedCaches } = workbox.precaching;
+const { clientsClaim } = workbox.core;
 
 // Precache and route all static assets
 precacheAndRoute(self.__WB_MANIFEST);

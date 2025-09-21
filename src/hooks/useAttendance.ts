@@ -14,24 +14,40 @@ export const useAttendance = (
   const [error, setError] = useState<string | null>(null);
 
   const handleRoomToggle = async (roomType: RoomType) => {
-    if (!currentUser) return;
-    
+    if (!currentUser) {
+      console.error('No current user found');
+      return;
+    }
+
+    console.log('handleRoomToggle called:', {
+      roomType,
+      currentUser: {
+        uid: currentUser.uid,
+        name: currentUser.name,
+        email: currentUser.email
+      }
+    });
+
     setLoading(true);
     setError(null);
     try {
       const currentUserData = users.find(u => u.uid === currentUser.uid);
       const isEntering = !currentUserData?.[roomType];
-      
+
+      console.log('Current user data:', currentUserData);
+      console.log('Is entering:', isEntering);
+
       await updateUserRoomStatus(currentUser.uid, roomType, isEntering);
-      
+
       await addLog({
         userId: currentUser.uid,
         userName: currentUser.name,
         action: isEntering ? '入室' : '退室',
         room: roomType === 'room2218' ? 'A2218室' : '院生室'
       });
-      
+
     } catch (error: any) {
+      console.error('Error in handleRoomToggle:', error);
       setError(error.message);
     } finally {
       setLoading(false);

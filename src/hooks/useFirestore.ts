@@ -11,7 +11,12 @@ export const useFirestore = (currentUser: FirebaseAuthUser | null) => {
   const [logs, setLogs] = useState<FirestoreLogEntry[]>([]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      // ユーザーが認証されていない場合は空の配列にリセット
+      setUsers([]);
+      setLogs([]);
+      return;
+    }
 
     const unsubscribeUsers = subscribeToUsers((firestoreUsers) => {
       setUsers(firestoreUsers);

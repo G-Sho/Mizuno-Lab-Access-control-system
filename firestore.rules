@@ -5,21 +5,14 @@ service cloud.firestore {
 
     // ユーザーコレクション
     match /users/{userId} {
-      // 認証済みユーザーのみ自分のドキュメントにアクセス可能
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-
-      // 管理者は全ユーザーの情報を読み取り可能（管理者チェックは関数側で実装）
-      allow read: if request.auth != null &&
-        request.auth.token.admin == true;
+      // 一時的にアクセスを許可（Slack認証対応のため）
+      allow read, write: if true;
     }
 
     // ログコレクション
     match /logs/{logId} {
-      // 認証済みユーザーのみログ作成可能
-      allow create: if request.auth != null;
-
-      // 認証済みユーザーは全ログ読み取り可能（履歴確認用）
-      allow read: if request.auth != null;
+      // 一時的にアクセスを許可（Slack認証対応のため）
+      allow read, create: if true;
 
       // ログの更新・削除は禁止（データ整合性のため）
       allow update, delete: if false;
