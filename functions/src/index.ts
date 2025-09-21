@@ -4,6 +4,7 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import fetch from "node-fetch";
 import * as dotenv from "dotenv";
+import * as crypto from "crypto";
 
 // Global options for v2 functions
 setGlobalOptions({
@@ -25,6 +26,51 @@ const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 const SLACK_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
 const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID;
 const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET;
+
+// 暗号化設定
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY; // 32バイトのキー
+const ALGORITHM = 'aes-256-gcm';
+
+// Slackトークン暗号化・復号化関数
+function encryptSlackToken(token: string): string {
+  if (!ENCRYPTION_KEY) {
+    throw new Error('ENCRYPTION_KEY環境変数が設定されていません');
+  }
+
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipher(ALGORITHM, ENCRYPTION_KEY);
+
+  let encrypted = cipher.update(token, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+
+  const authTag = cipher.getAuthTag();
+
+  // IV + authTag + encryptedDataを結合して返す
+  return iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;
+}
+
+function decryptSlackToken(encryptedToken: string): string {
+  if (!ENCRYPTION_KEY) {
+    throw new Error('ENCRYPTION_KEY環境変数が設定されていません');
+  }
+
+  const parts = encryptedToken.split(':');
+  if (parts.length !== 3) {
+    throw new Error('不正な暗号化データ形式');
+  }
+
+  const iv = Buffer.from(parts[0], 'hex');
+  const authTag = Buffer.from(parts[1], 'hex');
+  const encrypted = parts[2];
+
+  const decipher = crypto.createDecipher(ALGORITHM, ENCRYPTION_KEY);
+  decipher.setAuthTag(authTag);
+
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+
+  return decrypted;
+}
 
 // 定数
 const JST_OFFSET = 9 * 60 * 60 * 1000; // 日本時間オフセット（9時間）
@@ -289,7 +335,7 @@ export const onLogCreate = onDocumentCreated("logs/{logId}", async (event) => {
           const userDoc = await db.collection('users').doc(userId).get();
           userData = userDoc.data();
           userAvatar = userData?.avatar;
-          userToken = userData?.slackUserToken;
+          userToken = userData?.slackUserToken ? decryptSlackToken(userData.slackUserToken) : undefined;
 
           // デバッグログ追加
           console.log(`DEBUG: userId=${userId}`);
@@ -375,7 +421,7 @@ export const onUserKeyStatusChange = onDocumentUpdated("users/{userId}", async (
       const userName = afterData.name;
       const action = afterData.hasKey ? "鍵取得" : "鍵返却";
       const userAvatar = afterData.avatar;
-      const userToken = afterData.slackUserToken;
+      const userToken = afterData.slackUserToken ? decryptSlackToken(afterData.slackUserToken) : undefined;
 
       // 重複通知防止：5秒以内の同一ログをチェック
       const fiveSecondsAgo = new Date(Date.now() - 5000);
@@ -451,6 +497,29 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
                 window.opener.postMessage({
                   type: 'SLACK_AUTH_ERROR',
                   error: 'Missing authorization code'
+                }, '*');
+                window.close();
+              }
+            </script>
+          </body>
+        </html>
+      `);
+      return;
+    }
+
+    // CSRF保護: stateパラメータの存在確認
+    if (!state || typeof state !== 'string') {
+      console.error('Missing or invalid state parameter:', state);
+      res.status(400).send(`
+        <html>
+          <body>
+            <h1>Authentication Error</h1>
+            <p>Invalid request. Please try logging in again.</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({
+                  type: 'SLACK_AUTH_ERROR',
+                  error: 'Invalid state parameter'
                 }, '*');
                 window.close();
               }
@@ -561,8 +630,8 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
       room2218: false,
       gradRoom: false,
       hasKey: false,
-      // ユーザートークンを暗号化して保存（実装では適切な暗号化を使用）
-      slackUserToken: userAccessToken
+      // ユーザートークンを暗号化して保存
+      slackUserToken: encryptSlackToken(userAccessToken)
     }, { merge: true });
 
     console.log('DEBUG: User saved to Firestore successfully');
@@ -598,7 +667,8 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
                 if (window.opener) {
                   window.opener.postMessage({
                     type: 'SLACK_AUTH_SUCCESS',
-                    user: userData
+                    user: userData,
+                    state: '${state}'
                   }, origin);
                   console.log('Message sent to origin:', origin);
                 }

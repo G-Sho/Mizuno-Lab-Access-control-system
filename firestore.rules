@@ -1,21 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 開発用：Slack認証システム動作確認のため一時的に寛容なルール
-    // TODO: 本番環境では適切なセキュリティルールに変更する
+    // セキュリティルール：認証済みユーザーのみアクセス可能
 
     // ユーザーコレクション
     match /users/{userId} {
-      // 全てのアクセスを許可（開発用）
-      allow read, write: if true;
+      // 認証済みユーザーのみ自分のドキュメントにアクセス可能
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      // 管理者は全ユーザーの情報を読み取り可能（管理者チェックは関数側で実装）
+      allow read: if request.auth != null &&
+        request.auth.token.admin == true;
     }
 
     // ログコレクション
     match /logs/{logId} {
-      // 全てのアクセスを許可（開発用）
-      allow read, create: if true;
-      // ログの更新・削除は禁止
+      // 認証済みユーザーのみログ作成可能
+      allow create: if request.auth != null;
+
+      // 認証済みユーザーは全ログ読み取り可能（履歴確認用）
+      allow read: if request.auth != null;
+
+      // ログの更新・削除は禁止（データ整合性のため）
       allow update, delete: if false;
+    }
+
+    // 管理者設定コレクション（将来の拡張用）
+    match /admin/{document=**} {
+      // 管理者のみアクセス可能
+      allow read, write: if request.auth != null &&
+        request.auth.token.admin == true;
     }
   }
 }
