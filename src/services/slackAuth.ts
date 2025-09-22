@@ -32,21 +32,60 @@ class SlackAuthService {
     } catch (error) {
       // フォールバック: クライアント側で生成（互換性のため）
       console.warn('Failed to generate server-side state, using fallback:', error);
-      const array = new Uint8Array(32);
-      crypto.getRandomValues(array);
-      return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+      return this.generateClientSideState();
     }
   }
 
-  // stateの保存と検証
+  // クライアント側でのセキュアなstate生成（モバイル対応）
+  private generateClientSideState(): string {
+    try {
+      // crypto.getRandomValuesが利用可能な場合
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (error) {
+      console.warn('crypto.getRandomValues not available:', error);
+    }
+
+    // フォールバック: Math.randomを使用（セキュリティは低下するが互換性重視）
+    console.warn('Using fallback random state generation for compatibility');
+    let result = '';
+    for (let i = 0; i < 64; i++) {
+      result += Math.floor(Math.random() * 16).toString(16);
+    }
+    return result;
+  }
+
+  // stateの保存と検証（モバイル対応）
   private storeState(state: string): void {
-    sessionStorage.setItem('oauth_state', state);
-    sessionStorage.setItem('oauth_state_timestamp', Date.now().toString());
+    try {
+      sessionStorage.setItem('oauth_state', state);
+      sessionStorage.setItem('oauth_state_timestamp', Date.now().toString());
+    } catch (error) {
+      console.warn('SessionStorage not available, using fallback storage');
+      // フォールバック: メモリ内に保存
+      (window as any)._oauthState = state;
+      (window as any)._oauthTimestamp = Date.now().toString();
+    }
   }
 
   private validateState(state: string): boolean {
-    const storedState = sessionStorage.getItem('oauth_state');
-    const timestamp = sessionStorage.getItem('oauth_state_timestamp');
+    try {
+      const storedState = sessionStorage.getItem('oauth_state');
+      const timestamp = sessionStorage.getItem('oauth_state_timestamp');
+      return this.doValidateState(state, storedState, timestamp);
+    } catch (error) {
+      console.warn('SessionStorage not available, using fallback storage');
+      // フォールバック: メモリから取得
+      const storedState = (window as any)._oauthState;
+      const timestamp = (window as any)._oauthTimestamp;
+      return this.doValidateState(state, storedState, timestamp);
+    }
+  }
+
+  private doValidateState(state: string, storedState: string | null, timestamp: string | null): boolean {
 
     // stateが一致し、10分以内に作成されたものか確認
     if (!storedState || !timestamp || storedState !== state) {
@@ -65,8 +104,14 @@ class SlackAuthService {
   }
 
   private clearState(): void {
-    sessionStorage.removeItem('oauth_state');
-    sessionStorage.removeItem('oauth_state_timestamp');
+    try {
+      sessionStorage.removeItem('oauth_state');
+      sessionStorage.removeItem('oauth_state_timestamp');
+    } catch (error) {
+      // フォールバック: メモリからクリア
+      delete (window as any)._oauthState;
+      delete (window as any)._oauthTimestamp;
+    }
   }
 
   // Slack OAuth認証を開始（ポップアップウィンドウ）
@@ -134,11 +179,21 @@ class SlackAuthService {
 
               // Custom Tokenが含まれている場合は保存
               if (customToken) {
-                sessionStorage.setItem('firebaseCustomToken', customToken);
+                try {
+                  sessionStorage.setItem('firebaseCustomToken', customToken);
+                } catch (error) {
+                  console.warn('Failed to store custom token in sessionStorage');
+                  (window as any)._firebaseCustomToken = customToken;
+                }
               }
 
               // セッションストレージに保存
-              sessionStorage.setItem('slackAuthUser', JSON.stringify(user));
+              try {
+                sessionStorage.setItem('slackAuthUser', JSON.stringify(user));
+              } catch (error) {
+                console.warn('Failed to store user in sessionStorage');
+                (window as any)._slackAuthUser = user;
+              }
               resolve(user);
             } else if (event.data.type === 'SLACK_AUTH_ERROR') {
               cleanup();
@@ -150,7 +205,7 @@ class SlackAuthService {
 
           window.addEventListener('message', messageListener);
 
-          // 30秒のタイムアウト設定
+          // 5分のタイムアウト設定
           timeoutHandler = setTimeout(() => {
             if (!authCompleted) {
               cleanup();
@@ -164,7 +219,7 @@ class SlackAuthService {
                 reject(new Error('認証がタイムアウトしました。再度お試しください。'));
               }
             }
-          }, 30000);
+          }, 300000);
 
           // ポップアップが閉じられた場合の処理（短い間隔でチェック）
           checkClosed = setInterval(() => {
@@ -202,29 +257,46 @@ class SlackAuthService {
     return `https://slack.com/oauth/v2/authorize?${params.toString()}`;
   }
 
-  // セッションからSlackユーザーを取得
+  // セッションからSlackユーザーを取得（モバイル対応）
   getStoredSlackUser(): FirebaseAuthUser | null {
     try {
       const stored = sessionStorage.getItem('slackAuthUser');
       return stored ? JSON.parse(stored) : null;
     } catch {
-      return null;
+      // フォールバック: メモリから取得
+      try {
+        const fallbackUser = (window as any)._slackAuthUser;
+        return fallbackUser || null;
+      } catch {
+        return null;
+      }
     }
   }
 
-  // Custom Tokenを取得
+  // Custom Tokenを取得（モバイル対応）
   getStoredCustomToken(): string | null {
     try {
       return sessionStorage.getItem('firebaseCustomToken');
     } catch {
-      return null;
+      // フォールバック: メモリから取得
+      try {
+        return (window as any)._firebaseCustomToken || null;
+      } catch {
+        return null;
+      }
     }
   }
 
-  // ログアウト
+  // ログアウト（モバイル対応）
   signOut(): void {
-    sessionStorage.removeItem('slackAuthUser');
-    sessionStorage.removeItem('firebaseCustomToken');
+    try {
+      sessionStorage.removeItem('slackAuthUser');
+      sessionStorage.removeItem('firebaseCustomToken');
+    } catch {
+      // フォールバック: メモリからクリア
+      delete (window as any)._slackAuthUser;
+      delete (window as any)._firebaseCustomToken;
+    }
     this.clearState(); // OAuth state もクリア
   }
 }
