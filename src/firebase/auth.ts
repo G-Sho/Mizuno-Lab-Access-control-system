@@ -83,10 +83,18 @@ export const signOut = async (): Promise<void> => {
   }
 };
 
-// 認証状態の監視（Slack認証対応）
+// 認証状態の監視（Slack認証のみ）
 export const onAuthStateChange = (callback: (user: FirebaseAuthUser | null) => void) => {
   // 現在のコールバックを保存
   currentAuthCallback = callback;
+
+  // 既存のFirebase認証をクリア（Slackログインのみを使用）
+  if (auth.currentUser) {
+    logger.debug('Clearing existing Firebase auth state to enforce Slack-only login');
+    firebaseSignOut(auth).catch((error) => {
+      logger.warn('Failed to clear Firebase auth state:', error);
+    });
+  }
 
   // 初回チェック（一度だけ）
   const slackUser = slackAuthService.getStoredSlackUser();
@@ -107,37 +115,20 @@ export const onAuthStateChange = (callback: (user: FirebaseAuthUser | null) => v
       });
   }
 
-  // 即座にコールバックを呼び出し（初回のみ）
+  // Slackユーザーのみをコールバックで通知
   callback(slackUser);
 
-  // Firebase認証の監視（Slackユーザーがいない場合のみ有効）
+  // Firebase認証の監視は無効化（Slackログインのみを使用）
   const firebaseUnsubscribe = onAuthStateChanged(auth, async (user: User | null) => {
-    logger.debug('=== Firebase Auth State Changed ===');
+    logger.debug('=== Firebase Auth State Changed (Slack-only mode) ===');
     logger.debug('Firebase UID:', user?.uid, 'Is Anonymous:', user?.isAnonymous);
 
     const currentSlackUser = slackAuthService.getStoredSlackUser();
     logger.debug('Current Slack user exists:', !!currentSlackUser);
 
-    // Slackユーザーがいる場合はFirebase認証を無視
-    if (currentSlackUser) {
-      logger.debug('Slack user exists, ignoring Firebase auth state change');
-      return;
-    }
-
-    // Firebase認証の処理
-
-    if (user) {
-      const authUser: FirebaseAuthUser = {
-        uid: user.uid,
-        name: user.displayName || user.email || 'Unknown User',
-        email: user.email || '',
-        avatar: user.photoURL || undefined,
-        provider: user.providerData[0]?.providerId || 'firebase'
-      };
-      callback(authUser);
-    } else {
-      callback(null);
-    }
+    // Slackログインのみを使用するため、Firebase認証の状態変更は常に無視
+    logger.debug('Ignoring Firebase auth state change - Slack-only authentication enforced');
+    return;
   });
 
   return () => {
