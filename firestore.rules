@@ -5,17 +5,16 @@ service cloud.firestore {
 
     // ユーザーコレクション
     match /users/{userId} {
-      // Slackユーザー用: Anonymous認証ユーザーがSlack UIDのドキュメントにアクセス可能
-      allow read, write: if request.auth != null &&
-        request.auth.uid != null &&
-        userId.matches('slack_.*');
-
-      // 他の認証ユーザーは自分のドキュメントのみアクセス可能
-      allow read, write: if request.auth != null &&
-        request.auth.uid == userId;
-
       // 認証済みユーザーは全ユーザー情報を読み取り可能（現在の状況確認用）
       allow read: if request.auth != null;
+
+      // 各ユーザーは自分のドキュメントのみ書き込み可能
+      allow write: if request.auth != null && request.auth.uid == userId;
+
+      // Slackユーザー用: Anonymous/Custom Token認証の場合
+      // Slack UIDのドキュメントへの書き込みを許可（一時的措置）
+      // TODO: Custom TokenにSlack UIDを含めて、より厳格なルールに変更する
+      allow write: if request.auth != null && userId.matches('slack_.*');
     }
 
     // ログコレクション

@@ -17,23 +17,8 @@ export const useAuth = () => {
       setCurrentUser(user);
       setAuthLoading(false);
 
-      if (user) {
-        try {
-          // 新規ユーザーのみ初期値で保存、既存ユーザーは基本情報のみ更新
-          await saveUser({
-            uid: user.uid,
-            name: user.name,
-            email: user.email,
-            avatar: user.avatar,
-            provider: user.provider,
-            room2218: false,  // 新規ユーザーのみ使用される
-            gradRoom: false,  // 新規ユーザーのみ使用される
-            hasKey: false     // 新規ユーザーのみ使用される
-          });
-        } catch (error) {
-          // エラーは無視（非必須処理）
-        }
-      }
+      // ユーザー情報の保存はログイン時のみ実行（認証状態変更のたびには実行しない）
+      // saveUserは内部で既存ユーザーかどうかを判定し、新規の場合のみ初期値を設定する
     };
 
     const unsubscribe = onAuthStateChange(handleAuthStateChange);
@@ -49,6 +34,22 @@ export const useAuth = () => {
         // 即座にユーザー状態を更新してローディング状態を解除
         setCurrentUser(result);
         setAuthLoading(false);
+
+        // ログイン成功時のみユーザー情報を保存
+        try {
+          await saveUser({
+            uid: result.uid,
+            name: result.name,
+            email: result.email,
+            avatar: result.avatar,
+            provider: result.provider,
+            room2218: false,  // 新規ユーザーのみ使用される
+            gradRoom: false,  // 新規ユーザーのみ使用される
+            hasKey: false     // 新規ユーザーのみ使用される
+          });
+        } catch (error) {
+          // エラーは無視（非必須処理）
+        }
       }
     } catch (error: any) {
       setAuthError(error.message);

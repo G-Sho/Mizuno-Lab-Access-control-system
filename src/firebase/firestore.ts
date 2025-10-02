@@ -101,19 +101,18 @@ export const updateUserRoomStatus = async (
 
 export const updateUserKeyStatus = async (uid: string, hasKey: boolean): Promise<void> => {
   try {
-    // まず他のユーザーの鍵を外す
+    // 鍵を取得する場合、他のユーザーが鍵を持っているかチェック
     if (hasKey) {
       const allUsers = await getAllUsers();
-      const promises = allUsers
-        .filter(u => u.uid !== uid && u.hasKey)
-        .map(u => updateDoc(doc(usersCollection, u.uid), { 
-          hasKey: false,
-          lastActivity: serverTimestamp()
-        }));
-      await Promise.all(promises);
+      const otherKeyHolder = allUsers.find(u => u.uid !== uid && u.hasKey);
+
+      if (otherKeyHolder) {
+        // 他のユーザーが鍵を持っている場合はエラー
+        throw new Error(`${otherKeyHolder.name}さんが既に鍵を持っています。先に返却してもらってください。`);
+      }
     }
-    
-    // 対象ユーザーの鍵状況を更新
+
+    // 対象ユーザーの鍵状況を更新（自分のデータのみ）
     const userRef = doc(usersCollection, uid);
     await updateDoc(userRef, {
       hasKey,
