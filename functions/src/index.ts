@@ -13,7 +13,8 @@ import {
   saveUserToFirestore,
   verifyUserSaved,
   generateSuccessResponseHTML,
-  generateErrorResponseHTML
+  generateErrorResponseHTML,
+  analyzeSlackAuthedUserContext
 } from './oauthHelpers';
 import { functionsLogger } from './utils/logger';
 
@@ -659,6 +660,7 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
     console.log('Authed user ID:', tokenData.authed_user?.id);
     console.log('Attempting to fetch user info from Slack API...');
 
+    const authedUserAnalysis = analyzeSlackAuthedUserContext(tokenData);
     const userId = tokenData.authed_user?.id;
     const userAccessToken = tokenData.authed_user?.access_token;
 
@@ -668,11 +670,15 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
     console.log('DEBUG OAuth: authed_user=', JSON.stringify(tokenData.authed_user, null, 2));
 
     if (!userId) {
-      throw new Error('No user ID found in OAuth response');
+      const reason = authedUserAnalysis.missingIdReason || 'Slack OAuth response did not include authed_user.id';
+      functionsLogger.error(reason);
+      throw new Error(reason);
     }
 
     if (!userAccessToken) {
-      throw new Error('No user access token found in OAuth response');
+      const reason = authedUserAnalysis.missingAccessTokenReason || 'Slack OAuth response did not include authed_user.access_token';
+      functionsLogger.error(reason);
+      throw new Error(reason);
     }
 
     const userResponse = await fetch(`https://slack.com/api/users.info?user=${userId}`, {

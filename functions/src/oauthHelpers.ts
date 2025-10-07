@@ -26,6 +26,39 @@ export interface SlackTokenData {
   is_enterprise_install: boolean;
 }
 
+export interface SlackAuthedUserAnalysis {
+  missingIdReason?: string;
+  missingAccessTokenReason?: string;
+}
+
+/**
+ * Slack OAuthレスポンス内のauthed_user情報を分析し、
+ * ユーザーIDやユーザーアクセストークンが欠落する代表的なケースを説明する
+ */
+export function analyzeSlackAuthedUserContext(tokenData: SlackTokenData): SlackAuthedUserAnalysis {
+  const authedUser = tokenData.authed_user;
+
+  if (!authedUser) {
+    const reason = 'Slackの管理画面からインストールするなど、ユーザーコンセント画面を経由しないフローでは authed_user 自体が含まれません。';
+    return {
+      missingIdReason: reason,
+      missingAccessTokenReason: reason,
+    };
+  }
+
+  const analysis: SlackAuthedUserAnalysis = {};
+
+  if (!authedUser.id) {
+    analysis.missingIdReason = 'ワークスペース管理者が管理画面からインストールした場合など、誰が認可したかをSlackが特定できないフローでは authed_user.id が省略されます。';
+  }
+
+  if (!authedUser.access_token) {
+    analysis.missingAccessTokenReason = 'OAuth開始時に user_scope を指定しないと Slack はユーザーアクセストークンを発行せず、authed_user.access_token が返却されません。';
+  }
+
+  return analysis;
+}
+
 export interface SlackUserData {
   ok: boolean;
   user: {
