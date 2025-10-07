@@ -710,18 +710,9 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
     console.log('DEBUG: Saving user to Firestore with userAccessToken=', !!userAccessToken);
     console.log('DEBUG: userAccessToken length=', userAccessToken ? userAccessToken.length : 0);
 
-    await db.collection('users').doc(firebaseUser.uid).set({
-      ...firebaseUser,
-      lastActivity: admin.firestore.FieldValue.serverTimestamp(),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      room2218: false,
-      gradRoom: false,
-      hasKey: false,
-      // ユーザートークンを暗号化して保存
-      slackUserToken: encryptSlackToken(userAccessToken)
-    }, { merge: true });
+    const { isNewUser } = await saveUserToFirestore(firebaseUser, userAccessToken, encryptSlackToken);
 
-    console.log('DEBUG: User saved to Firestore successfully');
+    console.log('DEBUG: User saved to Firestore successfully. isNewUser=', isNewUser);
 
     // 保存確認のため再読み込み
     const savedUser = await db.collection('users').doc(firebaseUser.uid).get();

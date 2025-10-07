@@ -8,11 +8,11 @@ import { functionsLogger } from './utils/logger';
 export interface SlackTokenData {
   ok: boolean;
   app_id: string;
-  authed_user: {
-    id: string;
-    scope: string;
-    access_token: string;
-    token_type: string;
+  authed_user?: {
+    id?: string;
+    scope?: string;
+    access_token?: string;
+    token_type?: string;
   };
   scope: string;
   token_type: string;
@@ -154,23 +154,38 @@ export async function saveUserToFirestore(
   firebaseUser: FirebaseUserData,
   userAccessToken: string,
   encryptSlackToken: (token: string) => string
-): Promise<void> {
+): Promise<{ isNewUser: boolean }> {
   const db = admin.firestore();
 
   functionsLogger.debug('Saving user to Firestore with userAccessToken=', !!userAccessToken);
 
-  await db.collection('users').doc(firebaseUser.uid).set({
+  const userRef = db.collection('users').doc(firebaseUser.uid);
+  const existingUser = await userRef.get();
+  const isNewUser = !existingUser.exists;
+
+  const baseUserData = {
     ...firebaseUser,
     lastActivity: admin.firestore.FieldValue.serverTimestamp(),
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    room2218: false,
-    gradRoom: false,
-    hasKey: false,
     // ユーザートークンを暗号化して保存
     slackUserToken: encryptSlackToken(userAccessToken)
-  }, { merge: true });
+  };
+
+  if (isNewUser) {
+    functionsLogger.debug('Creating new user document with default room/key flags');
+    await userRef.set({
+      ...baseUserData,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      room2218: false,
+      gradRoom: false,
+      hasKey: false
+    }, { merge: true });
+  } else {
+    functionsLogger.debug('Existing user detected, preserving current room/key state');
+    await userRef.set(baseUserData, { merge: true });
+  }
 
   functionsLogger.debug('User saved to Firestore successfully');
+  return { isNewUser };
 }
 
 /**
