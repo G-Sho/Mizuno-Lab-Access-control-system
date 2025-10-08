@@ -8,11 +8,11 @@ import { functionsLogger } from './utils/logger';
 export interface SlackTokenData {
   ok: boolean;
   app_id: string;
-  authed_user: {
-    id: string;
-    scope: string;
-    access_token: string;
-    token_type: string;
+  authed_user?: {
+    id?: string;
+    scope?: string;
+    access_token?: string;
+    token_type?: string;
   };
   scope: string;
   token_type: string;
@@ -24,6 +24,39 @@ export interface SlackTokenData {
   };
   enterprise?: any;
   is_enterprise_install: boolean;
+}
+
+export interface SlackAuthedUserAnalysis {
+  missingIdReason?: string;
+  missingAccessTokenReason?: string;
+}
+
+/**
+ * Slack OAuthレスポンス内のauthed_user情報を分析し、
+ * ユーザーIDやユーザーアクセストークンが欠落する代表的なケースを説明する
+ */
+export function analyzeSlackAuthedUserContext(tokenData: SlackTokenData): SlackAuthedUserAnalysis {
+  const authedUser = tokenData.authed_user;
+
+  if (!authedUser) {
+    const reason = 'Slackの管理画面からインストールするなど、ユーザーコンセント画面を経由しないフローでは authed_user 自体が含まれません。';
+    return {
+      missingIdReason: reason,
+      missingAccessTokenReason: reason,
+    };
+  }
+
+  const analysis: SlackAuthedUserAnalysis = {};
+
+  if (!authedUser.id) {
+    analysis.missingIdReason = 'ワークスペース管理者が管理画面からインストールした場合など、誰が認可したかをSlackが特定できないフローでは authed_user.id が省略されます。';
+  }
+
+  if (!authedUser.access_token) {
+    analysis.missingAccessTokenReason = 'OAuth開始時に user_scope を指定しないと Slack はユーザーアクセストークンを発行せず、authed_user.access_token が返却されません。';
+  }
+
+  return analysis;
 }
 
 export interface SlackUserData {
@@ -154,23 +187,38 @@ export async function saveUserToFirestore(
   firebaseUser: FirebaseUserData,
   userAccessToken: string,
   encryptSlackToken: (token: string) => string
-): Promise<void> {
+): Promise<{ isNewUser: boolean }> {
   const db = admin.firestore();
 
   functionsLogger.debug('Saving user to Firestore with userAccessToken=', !!userAccessToken);
 
-  await db.collection('users').doc(firebaseUser.uid).set({
+  const userRef = db.collection('users').doc(firebaseUser.uid);
+  const existingUser = await userRef.get();
+  const isNewUser = !existingUser.exists;
+
+  const baseUserData = {
     ...firebaseUser,
     lastActivity: admin.firestore.FieldValue.serverTimestamp(),
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    room2218: false,
-    gradRoom: false,
-    hasKey: false,
     // ユーザートークンを暗号化して保存
     slackUserToken: encryptSlackToken(userAccessToken)
-  }, { merge: true });
+  };
+
+  if (isNewUser) {
+    functionsLogger.debug('Creating new user document with default room/key flags');
+    await userRef.set({
+      ...baseUserData,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      room2218: false,
+      gradRoom: false,
+      hasKey: false
+    }, { merge: true });
+  } else {
+    functionsLogger.debug('Existing user detected, preserving current room/key state');
+    await userRef.set(baseUserData, { merge: true });
+  }
 
   functionsLogger.debug('User saved to Firestore successfully');
+  return { isNewUser };
 }
 
 /**

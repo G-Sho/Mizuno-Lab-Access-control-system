@@ -15,11 +15,11 @@ export interface SlackOAuthResponse {
   team_id: string;
   enterprise_id?: string;
   team_name: string;
-  authed_user: {
-    id: string;
-    scope: string;
-    access_token: string;
-    token_type: string;
+  authed_user?: {
+    id?: string;
+    scope?: string;
+    access_token?: string;
+    token_type?: string;
   };
 }
 
