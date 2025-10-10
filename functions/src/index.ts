@@ -488,7 +488,7 @@ export const onLogCreate = onDocumentCreated("logs/{logId}", async (event) => {
   });
 
 /**
- * 鍵状態変更の監視（重複通知防止）
+ * 鍵状態変更の監視（通知はonLogCreateに統一）
  */
 export const onUserKeyStatusChange = onDocumentUpdated("users/{userId}", async (event) => {
     const change = event.data;
@@ -497,57 +497,13 @@ export const onUserKeyStatusChange = onDocumentUpdated("users/{userId}", async (
       const beforeData = change.before.data();
       const afterData = change.after.data();
 
+      // hasKeyの変更がない場合は何もしない
       if (beforeData.hasKey === afterData.hasKey) return;
 
-      const userName = afterData.name;
+      // ログ記録と通知はクライアント側（useAttendance.ts）とonLogCreateで行われる
+      // ここでは状態変更のログ出力のみ
       const action = afterData.hasKey ? "鍵取得" : "鍵返却";
-      const userAvatar = afterData.avatar;
-      const userToken = afterData.slackUserToken ? decryptSlackToken(afterData.slackUserToken) : undefined;
-
-      // 重複通知防止：5秒以内の同一ログをチェック
-      const fiveSecondsAgo = new Date(Date.now() - 5000);
-      const userId = event.params.userId;
-      const recentLogs = await db.collection("logs")
-        .where("userId", "==", userId)
-        .where("action", "==", action)
-        .where("timestamp", ">", fiveSecondsAgo)
-        .limit(1)
-        .get();
-
-      if (recentLogs.empty && SLACK_CHANNEL_ID) {
-        const messageText = afterData.hasKey
-          ? `🔑 鍵取得 | ${afterData.name} | A2218室`
-          : `🔑 鍵返却 | ${afterData.name} | A2218室`;
-
-        // ユーザートークンがある場合は本人として投稿を試行（Section Block使用）
-        if (userToken) {
-          try {
-            const userBlocks = createUserMessageBlocks(userName, action, "A2218室", formatTimestamp());
-            await sendSlackMessageAsUser(userToken, SLACK_CHANNEL_ID, messageText, userBlocks);
-            console.log(`Direct key status notification sent as user: ${userName} ${action}`);
-            return;
-          } catch (error) {
-            console.log(`Failed to send key status as user, falling back to bot: ${error.message}`);
-
-            // ユーザートークンエラーの場合は、Firestoreからトークンを削除
-            if (error.message === 'INVALID_USER_TOKEN') {
-              try {
-                await db.collection('users').doc(userId).update({
-                  slackUserToken: admin.firestore.FieldValue.delete()
-                });
-                console.log('Removed invalid user token from Firestore');
-              } catch (updateError) {
-                console.error('Failed to remove invalid token:', updateError);
-              }
-            }
-          }
-        }
-
-        // フォールバック: Bot投稿
-        const blocks = createLogBlocks(userName, action, "A2218室", formatTimestamp(), userAvatar);
-        await sendSlackMessageAsBot(blocks);
-        console.log(`Direct key status notification sent as bot: ${userName} ${action}`);
-      }
+      console.log(`Key status changed for user ${afterData.name}: ${action}`);
     } catch (error) {
       console.error("Error in onUserKeyStatusChange:", error);
     }
