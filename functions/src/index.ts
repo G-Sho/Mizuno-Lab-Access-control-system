@@ -907,15 +907,10 @@ export const debugTest = onRequest(async (req, res) => {
 /**
  * OAuth state生成エンドポイント
  */
-export const generateState = onRequest(async (req, res) => {
+export const generateState = onRequest({cors: true}, async (req, res) => {
   try {
-    // CORS ヘッダーを設定
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type');
-
     if (req.method === 'OPTIONS') {
-      res.status(200).end();
+      res.status(204).end();
       return;
     }
 
