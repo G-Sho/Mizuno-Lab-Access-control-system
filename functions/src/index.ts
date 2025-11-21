@@ -1,6 +1,7 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { onRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import fetch from "node-fetch";
 import * as dotenv from "dotenv";
@@ -508,6 +509,74 @@ export const onUserKeyStatusChange = onDocumentUpdated("users/{userId}", async (
       console.error("Error in onUserKeyStatusChange:", error);
     }
   });
+
+/**
+ * 毎日24:00(JST)に在室状態と鍵保有状態をリセットする
+ */
+export const resetDailyStatuses = onSchedule({
+  schedule: '0 0 * * *',
+  timeZone: 'Asia/Tokyo',
+}, async () => {
+  try {
+    const snapshot = await db.collection('users').get();
+    const logCollection = db.collection('logs');
+    let processedUsers = 0;
+
+    const updateTasks: Promise<FirebaseFirestore.WriteResult>[] = [];
+    const logTasks: Promise<FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>>[] = [];
+
+    snapshot.forEach((docSnapshot) => {
+      const userData = docSnapshot.data();
+      const needsReset = userData.room2218 || userData.gradRoom || userData.hasKey;
+
+      if (!needsReset) {
+        return;
+      }
+
+      processedUsers += 1;
+
+      const userRef = db.collection('users').doc(docSnapshot.id);
+      const resetPayload: Record<string, any> = {
+        room2218: false,
+        gradRoom: false,
+        hasKey: false,
+        lastActivity: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      updateTasks.push(userRef.update(resetPayload));
+
+      const logBase = {
+        userId: docSnapshot.id,
+        userName: userData.name || '不明なユーザー',
+        metadata: { autoReset: true },
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      const loggableActions: { action: string; room: string }[] = [];
+
+      if (userData.room2218) {
+        loggableActions.push({ action: '退室', room: 'A2218室' });
+      }
+
+      if (userData.gradRoom) {
+        loggableActions.push({ action: '退室', room: '院生室' });
+      }
+
+      if (userData.hasKey) {
+        loggableActions.push({ action: '鍵返却', room: 'A2218室' });
+      }
+
+      loggableActions.forEach(({ action, room }) => {
+        logTasks.push(logCollection.add({ ...logBase, action, room }));
+      });
+    });
+
+    await Promise.all([...updateTasks, ...logTasks]);
+    console.log(`Daily reset completed. Processed users: ${processedUsers}`);
+  } catch (error) {
+    console.error('Error running daily reset:', error);
+  }
+});
 
 /**
  * Slack OAuth認証コールバック処理
