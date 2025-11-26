@@ -511,10 +511,10 @@ export const onUserKeyStatusChange = onDocumentUpdated("users/{userId}", async (
   });
 
 /**
- * 毎日24:00(JST)に在室状態と鍵保有状態をリセットする
+ * 毎日23:59(JST)に在室状態と鍵保有状態をリセットする
  */
 export const resetDailyStatuses = onSchedule({
-  schedule: '0 0 * * *',
+  schedule: '59 23 * * *',
   timeZone: 'Asia/Tokyo',
 }, async () => {
   try {
