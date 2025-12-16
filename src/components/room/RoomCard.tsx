@@ -53,7 +53,7 @@ export const RoomCard: React.FC<RoomCardProps> = ({
           )}
         </button>
 
-        {isRoom2218 && isInRoom && onKeyToggle && (
+        {isRoom2218 && onKeyToggle && (
           <div className="border-t pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input

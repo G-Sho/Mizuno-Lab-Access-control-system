@@ -10,6 +10,7 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  runTransaction,
   serverTimestamp
 } from 'firebase/firestore';
 import { db } from './config';
@@ -26,15 +27,17 @@ import { logger } from '../utils/logger';
 // コレクション参照
 const usersCollection = collection(db, 'users');
 const logsCollection = collection(db, 'logs');
+const keyCollection = collection(db, 'keys');
+const mainKeyDocRef = doc(keyCollection, 'main');
 
 // ユーザー関連の操作
 export const saveUser = async (user: Omit<FirestoreUser, 'createdAt' | 'lastActivity'>): Promise<void> => {
   try {
     const userRef = doc(usersCollection, user.uid);
     const existingUser = await getDoc(userRef);
-    
+
     const now = serverTimestamp();
-    
+
     if (existingUser.exists()) {
       // 既存ユーザーの更新（room2218, gradRoom, hasKeyは既存の値を保持）
       await updateDoc(userRef, {
@@ -101,23 +104,48 @@ export const updateUserRoomStatus = async (
 
 export const updateUserKeyStatus = async (uid: string, hasKey: boolean): Promise<void> => {
   try {
-    // 鍵を取得する場合、他のユーザーが鍵を持っているかチェック
-    if (hasKey) {
-      const allUsers = await getAllUsers();
-      const otherKeyHolder = allUsers.find(u => u.uid !== uid && u.hasKey);
-
-      if (otherKeyHolder) {
-        // 他のユーザーが鍵を持っている場合はエラー
-        throw new Error(`${otherKeyHolder.name}さんが既に鍵を持っています。先に返却してもらってください。`);
-      }
-    }
-
-    // 対象ユーザーの鍵状況を更新（自分のデータのみ）
     const userRef = doc(usersCollection, uid);
-    await updateDoc(userRef, {
-      hasKey,
-      lastActivity: serverTimestamp()
+    const now = serverTimestamp();
+
+    await runTransaction(db, async (transaction) => {
+      const keySnapshot = await transaction.get(mainKeyDocRef);
+      const keyData = keySnapshot.exists() ? keySnapshot.data() as { holderUid: string | null } : { holderUid: null };
+      const currentHolderUid = keyData.holderUid ?? null;
+
+      // 取得時は現在の所持者を解放してから新規所持者を設定
+      if (hasKey) {
+        if (!keySnapshot.exists()) {
+          transaction.set(mainKeyDocRef, { holderUid: null });
+        }
+
+        if (currentHolderUid && currentHolderUid !== uid) {
+          const otherUserRef = doc(usersCollection, currentHolderUid);
+          transaction.update(otherUserRef, {
+            hasKey: false,
+            lastActivity: now
+          });
+        }
+
+        transaction.update(userRef, {
+          hasKey: true,
+          lastActivity: now
+        });
+
+        transaction.set(mainKeyDocRef, { holderUid: uid });
+        return;
+      }
+
+      // 返却時は所持フラグを外し、所持者であれば鍵ドキュメントをクリア
+      transaction.update(userRef, {
+        hasKey: false,
+        lastActivity: now
+      });
+
+      if (currentHolderUid === uid) {
+        transaction.set(mainKeyDocRef, { holderUid: null });
+      }
     });
+    return;
   } catch (error) {
     const firestoreError = handleFirestoreError(error);
     logError(firestoreError, 'updateUserKeyStatus');
