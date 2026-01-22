@@ -235,10 +235,18 @@ export async function verifyUserSaved(uid: string): Promise<void> {
 /**
  * OAuth成功レスポンスHTMLの生成
  */
+const OAUTH_ALLOWED_ORIGINS = [
+  'https://mizuno-lab-access-control.web.app',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'http://localhost:5174'
+];
+
 export function generateSuccessResponseHTML(
   firebaseUser: FirebaseUserData,
   customToken: string | null,
-  state: string
+  state: string,
+  redirectOrigin?: string
 ): string {
   return `
     <html>
@@ -254,29 +262,34 @@ export function generateSuccessResponseHTML(
           console.log('Authentication successful, sending message to parent window:', userData);
           console.log('Custom token available:', !!customToken);
 
-          // ポップアップの親ウィンドウに結果を送信
-          const origins = [
-            'https://mizuno-lab-access-control.web.app',
-            'http://localhost:3001',
-            'http://localhost:5173',
-            'http://localhost:5174'
-          ];
+          const payload = {
+            type: 'SLACK_AUTH_SUCCESS',
+            user: userData,
+            customToken: customToken,
+            state: '${state}'
+          };
+          const allowedOrigins = ${JSON.stringify(OAUTH_ALLOWED_ORIGINS)};
+          const targetOrigin = ${JSON.stringify(redirectOrigin ?? null)} || allowedOrigins[0];
+          const encodedPayload = encodeURIComponent(JSON.stringify(payload));
+          const redirectUrl = \`\${targetOrigin}/slack-auth#payload=\${encodedPayload}\`;
 
-          origins.forEach(origin => {
-            try {
-              if (window.opener) {
-                window.opener.postMessage({
-                  type: 'SLACK_AUTH_SUCCESS',
-                  user: userData,
-                  customToken: customToken,
-                  state: '${state}'
-                }, origin);
+          let messageSent = false;
+          if (window.opener) {
+            allowedOrigins.forEach(origin => {
+              if (messageSent) return;
+              try {
+                window.opener.postMessage(payload, origin);
+                messageSent = true;
                 console.log('Message sent to origin:', origin);
+              } catch (e) {
+                console.warn('Failed to send message to origin:', origin, e);
               }
-            } catch (e) {
-              console.warn('Failed to send message to origin:', origin, e);
-            }
-          });
+            });
+          }
+
+          if (!messageSent) {
+            window.location.replace(redirectUrl);
+          }
 
           // 少し待ってからウィンドウを閉じる
           setTimeout(() => {
@@ -295,7 +308,7 @@ export function generateSuccessResponseHTML(
 /**
  * OAuth失敗レスポンスHTMLの生成
  */
-export function generateErrorResponseHTML(error: string): string {
+export function generateErrorResponseHTML(error: string, redirectOrigin?: string): string {
   return `
     <html>
       <head>
@@ -305,25 +318,31 @@ export function generateErrorResponseHTML(error: string): string {
         <h1>認証エラー</h1>
         <p>Slack認証に失敗しました: ${error}</p>
         <script>
-          const origins = [
-            'https://mizuno-lab-access-control.web.app',
-            'http://localhost:3001',
-            'http://localhost:5173',
-            'http://localhost:5174'
-          ];
+          const payload = {
+            type: 'SLACK_AUTH_ERROR',
+            error: '${error}'
+          };
+          const allowedOrigins = ${JSON.stringify(OAUTH_ALLOWED_ORIGINS)};
+          const targetOrigin = ${JSON.stringify(redirectOrigin ?? null)} || allowedOrigins[0];
+          const encodedPayload = encodeURIComponent(JSON.stringify(payload));
+          const redirectUrl = \`\${targetOrigin}/slack-auth#payload=\${encodedPayload}\`;
 
-          origins.forEach(origin => {
-            try {
-              if (window.opener) {
-                window.opener.postMessage({
-                  type: 'SLACK_AUTH_ERROR',
-                  error: '${error}'
-                }, origin);
+          let messageSent = false;
+          if (window.opener) {
+            allowedOrigins.forEach(origin => {
+              if (messageSent) return;
+              try {
+                window.opener.postMessage(payload, origin);
+                messageSent = true;
+              } catch (e) {
+                console.warn('Failed to send error message to origin:', origin, e);
               }
-            } catch (e) {
-              console.warn('Failed to send error message to origin:', origin, e);
-            }
-          });
+            });
+          }
+
+          if (!messageSent) {
+            window.location.replace(redirectUrl);
+          }
 
           setTimeout(() => {
             try {

@@ -101,25 +101,42 @@ function decryptSlackToken(encryptedToken: string): string {
 }
 
 // OAuth state検証関数
-function generateOAuthState(): string {
+const OAUTH_ALLOWED_ORIGINS = [
+  'https://mizuno-lab-access-control.web.app',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'http://localhost:5174'
+];
+
+type OAuthStatePayload = {
+  timestamp: number;
+  randomValue: string;
+  origin?: string;
+};
+
+function generateOAuthState(origin?: string): string {
   if (!STATE_SECRET) {
     throw new Error('STATE_SECRET環境変数が設定されていません');
   }
 
   const timestamp = Math.floor(Date.now() / 1000);
   const randomValue = crypto.randomBytes(16).toString('hex');
-  const payload = JSON.stringify({ timestamp, randomValue });
+  const payload: OAuthStatePayload = { timestamp, randomValue };
+  if (origin && OAUTH_ALLOWED_ORIGINS.includes(origin)) {
+    payload.origin = origin;
+  }
+  const payloadJson = JSON.stringify(payload);
 
   // HMAC-SHA256でデジタル署名を作成
   const hmac = crypto.createHmac('sha256', STATE_SECRET);
-  hmac.update(payload);
+  hmac.update(payloadJson);
   const signature = hmac.digest('hex');
 
   // Base64エンコードして返す
-  return Buffer.from(`${payload}.${signature}`).toString('base64');
+  return Buffer.from(`${payloadJson}.${signature}`).toString('base64');
 }
 
-function validateOAuthState(state: string): boolean {
+function validateOAuthState(state: string): { valid: boolean; origin?: string } {
   if (!STATE_SECRET) {
     throw new Error('STATE_SECRET環境変数が設定されていません');
   }
@@ -130,7 +147,7 @@ function validateOAuthState(state: string): boolean {
     const [payload, expectedSignature] = decoded.split('.');
 
     if (!payload || !expectedSignature) {
-      return false;
+      return { valid: false };
     }
 
     // 署名検証
@@ -139,18 +156,25 @@ function validateOAuthState(state: string): boolean {
     const actualSignature = hmac.digest('hex');
 
     if (actualSignature !== expectedSignature) {
-      return false;
+      return { valid: false };
     }
 
     // タイムスタンプ検証
-    const data = JSON.parse(payload);
+    const data = JSON.parse(payload) as OAuthStatePayload;
     const currentTime = Math.floor(Date.now() / 1000);
     const stateAge = currentTime - data.timestamp;
     const maxAge = STATE_EXPIRY_MINUTES * 60; // 秒に変換
 
-    return stateAge <= maxAge;
+    if (stateAge > maxAge) {
+      return { valid: false };
+    }
+
+    return {
+      valid: true,
+      origin: data.origin && OAUTH_ALLOWED_ORIGINS.includes(data.origin) ? data.origin : undefined
+    };
   } catch (error) {
-    return false;
+    return { valid: false };
   }
 }
 
@@ -582,6 +606,33 @@ export const resetDailyStatuses = onSchedule({
  * Slack OAuth認証コールバック処理
  */
 export const slackOAuthCallback = onRequest(async (req, res) => {
+  let redirectOrigin = OAUTH_ALLOWED_ORIGINS[0];
+  const createRedirectScript = (payload: Record<string, unknown>, targetOrigin: string) => `
+      <script>
+        const payload = ${JSON.stringify(payload)};
+        const redirectOrigin = ${JSON.stringify(targetOrigin)};
+        const encodedPayload = encodeURIComponent(JSON.stringify(payload));
+        const redirectUrl = \`\${redirectOrigin}/slack-auth#payload=\${encodedPayload}\`;
+
+        let messageSent = false;
+        const allowedOrigins = ${JSON.stringify(OAUTH_ALLOWED_ORIGINS)};
+        if (window.opener) {
+          allowedOrigins.forEach(origin => {
+            if (messageSent) return;
+            try {
+              window.opener.postMessage(payload, origin);
+              messageSent = true;
+            } catch (e) {
+              console.warn('Failed to send message to origin:', origin, e);
+            }
+          });
+        }
+
+        if (!messageSent) {
+          window.location.replace(redirectUrl);
+        }
+      </script>
+    `;
   try {
     // GETリクエストのみ処理
     if (req.method !== 'GET') {
@@ -598,14 +649,14 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
           <body>
             <h1>Authentication Error</h1>
             <p>Missing authorization code. Please try logging in again.</p>
+            ${createRedirectScript({
+              type: 'SLACK_AUTH_ERROR',
+              error: 'Missing authorization code'
+            }, redirectOrigin)}
             <script>
-              if (window.opener) {
-                window.opener.postMessage({
-                  type: 'SLACK_AUTH_ERROR',
-                  error: 'Missing authorization code'
-                }, '*');
+              setTimeout(() => {
                 window.close();
-              }
+              }, 3000);
             </script>
           </body>
         </html>
@@ -621,14 +672,14 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
           <body>
             <h1>Authentication Error</h1>
             <p>Invalid request. Please try logging in again.</p>
+            ${createRedirectScript({
+              type: 'SLACK_AUTH_ERROR',
+              error: 'Invalid state parameter'
+            }, redirectOrigin)}
             <script>
-              if (window.opener) {
-                window.opener.postMessage({
-                  type: 'SLACK_AUTH_ERROR',
-                  error: 'Invalid state parameter'
-                }, '*');
+              setTimeout(() => {
                 window.close();
-              }
+              }, 3000);
             </script>
           </body>
         </html>
@@ -637,11 +688,13 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
     }
 
     // stateパラメータの暗号学的検証
-    if (!validateOAuthState(state)) {
+    const stateValidation = validateOAuthState(state);
+    if (!stateValidation.valid) {
       functionsLogger.error('OAuth state validation failed - potential CSRF attack');
-      res.status(400).send(generateErrorResponseHTML('Invalid or expired authentication request'));
+      res.status(400).send(generateErrorResponseHTML('Invalid or expired authentication request', redirectOrigin));
       return;
     }
+    redirectOrigin = stateValidation.origin || redirectOrigin;
 
     // Slack OAuth token exchange
     console.log('=== OAUTH DEBUG START ===');
@@ -763,29 +816,13 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
           <script>
             const userData = ${JSON.stringify(firebaseUser)};
             console.log('Authentication successful, sending message to parent window:', userData);
-
-            // ポップアップの親ウィンドウに結果を送信
-            const origins = [
-              'https://mizuno-lab-access-control.web.app',
-              'http://localhost:5173',
-              'http://localhost:5174'
-            ];
-
-            origins.forEach(origin => {
-              try {
-                if (window.opener) {
-                  window.opener.postMessage({
-                    type: 'SLACK_AUTH_SUCCESS',
-                    user: userData,
-                    state: '${state}'
-                  }, origin);
-                  console.log('Message sent to origin:', origin);
-                }
-              } catch (e) {
-                console.log('Failed to send message to', origin, e);
-              }
-            });
-
+          </script>
+          ${createRedirectScript({
+            type: 'SLACK_AUTH_SUCCESS',
+            user: firebaseUser,
+            state: state
+          }, redirectOrigin)}
+          <script>
             // 2秒後にウィンドウを閉じる
             setTimeout(() => {
               console.log('Closing authentication window');
@@ -809,28 +846,15 @@ export const slackOAuthCallback = onRequest(async (req, res) => {
         <body>
           <script>
             console.log('Sending auth error message:', '${String(error)}');
-
-            if (window.opener) {
-              const origins = [
-                'https://mizuno-lab-access-control.web.app',
-                'http://localhost:5173',
-                'http://localhost:5174'
-              ];
-
-              origins.forEach(origin => {
-                try {
-                  window.opener.postMessage({
-                    type: 'SLACK_AUTH_ERROR',
-                    error: '${String(error)}'
-                  }, origin);
-                } catch (e) {
-                  console.log('Failed to send error message to', origin, e);
-                }
-              });
+          </script>
+          ${createRedirectScript({
+            type: 'SLACK_AUTH_ERROR',
+            error: String(error)
+          }, redirectOrigin)}
+          <script>
+            setTimeout(() => {
               window.close();
-            } else {
-              window.location.href = 'https://mizuno-lab-access-control.web.app/?auth=error&message=' + encodeURIComponent('${String(error)}');
-            }
+            }, 3000);
           </script>
         </body>
       </html>
@@ -983,7 +1007,20 @@ export const generateState = onRequest({cors: true}, async (req, res) => {
       return;
     }
 
-    const state = generateOAuthState();
+    let requestedOrigin: string | undefined;
+    if (typeof req.body === 'string') {
+      try {
+        const parsed = JSON.parse(req.body) as { origin?: string };
+        if (typeof parsed.origin === 'string') {
+          requestedOrigin = parsed.origin;
+        }
+      } catch (error) {
+        requestedOrigin = undefined;
+      }
+    } else if (typeof req.body?.origin === 'string') {
+      requestedOrigin = req.body.origin;
+    }
+    const state = generateOAuthState(requestedOrigin);
 
     res.json({
       success: true,
