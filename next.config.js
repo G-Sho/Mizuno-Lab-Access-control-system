@@ -24,7 +24,8 @@ const pwaConfig = withPWA({
   register: true,
   skipWaiting: true,
   disable: false, // Enable in development for testing
-  // Minimal configuration for static export
+  buildExcludes: [/app-build-manifest\.json$/],
+  // Exclude manifest that is referenced by next-pwa but not served in static export
 });
 
 export default pwaConfig(nextConfig);
